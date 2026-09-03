@@ -162,6 +162,20 @@ const SupabaseDataProvider = (function () {
     async resetAll() {
       for (const k of FL_KNOWN_PROFILES) await this.resetProfile(k.id);
       await this.updateCouple((c) => Object.assign(c, flDefaultCouple(), { id: 'main' }));
+    },
+
+    // Live updates: fires `onChange(table)` whenever the other device
+    // writes to profiles/couple, so the League, Daily Challenge and duel
+    // state can refresh without a manual reload. Requires both tables to
+    // be in the supabase_realtime publication (supabase/schema.sql does
+    // this). LocalDataProvider's no-op stub keeps app.js provider-agnostic.
+    // Returns an unsubscribe function.
+    subscribeToChanges(onChange) {
+      const channel = sb().channel('fluentr-live')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => onChange('profiles'))
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'couple' }, () => onChange('couple'))
+        .subscribe();
+      return () => { sb().removeChannel(channel); };
     }
   };
 })();

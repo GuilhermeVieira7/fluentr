@@ -819,12 +819,13 @@ const FluentrUI = (function () {
         </div>
       </div>
 
+      ${couple.pendingDuel ? renderPendingDuelCard(couple.pendingDuel, profile, otherProfile) : `
       <div class="card mt-16" style="margin-bottom:18px;">
         <div class="flex" style="justify-content:space-between;align-items:center;">
-          <div><div style="font-weight:700;">Weekly Duel</div><div class="text-faint" style="font-size:12px;margin-top:2px;">Challenge ${esc(otherProfile.name)} — 10 questions, same device</div></div>
+          <div><div style="font-weight:700;">Weekly Duel</div><div class="text-faint" style="font-size:12px;margin-top:2px;">Challenge ${esc(otherProfile.name)} — play your 10 whenever, they answer on their own time</div></div>
           <button class="btn btn-primary btn-sm" data-action="navigate" data-route="duel-setup">Start</button>
         </div>
-      </div>
+      </div>`}
 
       <div class="section">
         <div class="section-head"><span class="section-title">Last 4 weeks</span></div>
@@ -893,7 +894,6 @@ const FluentrUI = (function () {
 
   function renderDuelTurn(duel, whoLabel, index, answerState) {
     const total = duel.exercises.length;
-    if (index >= total) return `<div class="complete-card"><h2>Turn complete!</h2><button class="btn btn-primary btn-block mt-16" data-action="duel-next-turn">Continue</button></div>`;
     const ex = duel.exercises[index].data;
     const options = ex.options.map((opt, i) => {
       let cls = '';
@@ -901,40 +901,59 @@ const FluentrUI = (function () {
       return `<button class="option-btn ${cls}" data-action="answer-duel" data-index="${i}" ${answerState.answered ? 'disabled' : ''}>${esc(opt)}</button>`;
     }).join('');
     return `<div class="session-header">
-        <div class="chip chip-couple">${esc(whoLabel)}'s turn</div>
+        <div class="chip chip-couple">Duel · ${esc(whoLabel)}</div>
         <div class="session-progress-track"><div class="session-progress-fill" style="width:${Math.round((index / total) * 100)}%;"></div></div>
         <span class="text-faint mono" style="font-size:12px;">${index + 1}/${total}</span>
       </div>
       <div class="exercise-card">
         <div class="exercise-question">${esc(ex.question)}</div>
         <div class="option-list">${options}</div>
-        ${answerState.answered ? continueFooter() : ''}
+        ${answerState.answered ? `<div class="session-footer"><button class="btn btn-primary btn-block" data-action="duel-next-turn">Continue</button></div>` : ''}
       </div>`;
   }
 
-  function renderDuelPassDevice(name) {
+  // Shown right after submitting your round, while the duel waits on the
+  // partner's device to play the same questions — replaces the old
+  // same-device "pass the phone" hand-off screen.
+  function renderDuelWaiting(duel, profile, otherProfile) {
     return `<div class="complete-card">
-      <div class="complete-badge">${FluentrIcons.icon('swords', 36)}</div>
-      <h2 style="font-size:19px;">Pass the device to ${esc(name)}</h2>
-      <p class="text-soft">Same 10 questions, fresh start. Ready?</p>
-      <button class="btn btn-primary btn-block mt-16" data-action="duel-begin-turn">I'm ${esc(name)} — Start</button>
+      <div style="display:flex;justify-content:center;margin-bottom:10px;">${FluentrMascot.avatar('thinking', 76)}</div>
+      <h2 style="font-size:19px;">You scored ${duel.myResult.score}/10</h2>
+      <p class="text-soft">Now it's ${esc(otherProfile.name)}'s turn — the result unlocks as soon as they play. You'll get a live update, no need to check back manually.</p>
+      <button class="btn btn-primary btn-block mt-16" data-action="navigate" data-route="league">Back to League</button>
     </div>`;
   }
 
   function renderDuelResult(duel, p1, p2) {
-    const r1 = duel.results[p1.id], r2 = duel.results[p2.id];
-    // Read the winner finalizeDuel() already computed (app.js) rather than
-    // recomputing it here — two independent copies of this tie-break used
-    // to disagree on an exact score+time tie.
-    const winnerId = duel.winnerId;
-    const winner = winnerId === p1.id ? p1 : p2;
+    const r = duel.record;
+    const r1 = r.results[p1.id], r2 = r.results[p2.id];
+    const winner = r.winnerId === p1.id ? p1 : p2;
     return `<div class="complete-card">
       <div class="complete-badge">${FluentrIcons.icon('trophy', 40)}</div>
       <h2 style="font-size:20px;margin-bottom:16px;">Duel Result</h2>
-      <div class="duel-result-row ${winnerId === p1.id ? 'winner' : ''}"><span>${esc(p1.name)}</span><span>${r1.score}/10 · ${r1.timeSec}s</span></div>
-      <div class="duel-result-row ${winnerId === p2.id ? 'winner' : ''}"><span>${esc(p2.name)}</span><span>${r2.score}/10 · ${r2.timeSec}s</span></div>
+      <div class="duel-result-row ${r.winnerId === p1.id ? 'winner' : ''}"><span>${esc(p1.name)}</span><span>${r1.score}/10 · ${r1.timeSec}s</span></div>
+      <div class="duel-result-row ${r.winnerId === p2.id ? 'winner' : ''}"><span>${esc(p2.name)}</span><span>${r2.score}/10 · ${r2.timeSec}s</span></div>
       <p style="margin-top:12px;font-weight:800;">🏆 ${esc(winner.name)} wins!</p>
       <button class="btn btn-primary btn-block mt-16" data-action="navigate" data-route="league">Back to League</button>
+    </div>`;
+  }
+
+  // League card for a duel someone started that's waiting on a response —
+  // "Play" if it's your turn, a waiting note if you're the one who's played.
+  function renderPendingDuelCard(pendingDuel, profile, otherProfile) {
+    if (!pendingDuel) return '';
+    const topicLabel = { business: 'Business English', technical: 'Technical English', traps: 'Brazilian Traps', mixed: 'Mixed' };
+    const myTurn = !pendingDuel.results[profile.id];
+    return `<div class="card mt-16" style="margin-bottom:18px;border-color:var(--couple-soft);">
+      <div class="flex" style="justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-weight:700;">${esc(topicLabel[pendingDuel.topic] || pendingDuel.topic)} Duel pending</div>
+          <div class="text-faint" style="font-size:12px;margin-top:2px;">${myTurn ? `${esc(otherProfile.name)} already played — your turn` : `Waiting on ${esc(otherProfile.name)}`}</div>
+        </div>
+        ${myTurn
+        ? `<button class="btn btn-couple btn-sm" data-action="play-pending-duel">Play</button>`
+        : `<button class="btn btn-subtle btn-sm" data-action="cancel-pending-duel">Cancel</button>`}
+      </div>
     </div>`;
   }
 
@@ -1188,7 +1207,7 @@ const FluentrUI = (function () {
     renderHome, renderLearn, renderExerciseItem, renderLessonComplete, renderOutOfHearts,
     renderPractice, renderTraps, renderSay, renderSayDetail, renderWriting, renderWritingDetail,
     renderTechnical, renderTechnicalDetail, renderSOSHub, renderSOSPack, renderSOSInterviewHub, renderSOSInterviewCategory,
-    renderSimulatorStep, renderLeague, renderComeback, renderCoupleChallenge, renderDuelSetup, renderDuelTurn, renderDuelPassDevice, renderDuelResult,
+    renderSimulatorStep, renderLeague, renderComeback, renderCoupleChallenge, renderDuelSetup, renderDuelTurn, renderDuelWaiting, renderDuelResult,
     renderBadges, renderProfile, renderProgress, renderPhrasebook, renderSettings, renderWeekRecap,
     showToast, showLevelUp
   };

@@ -149,5 +149,11 @@ const LocalDataProvider = {
 
     async resetAll() {
       await FluentrStorage.clearAll();
+    },
+
+    // No-op counterpart to SupabaseDataProvider.subscribeToChanges — with
+    // one device and one IndexedDB there is no "other writer" to hear from.
+    subscribeToChanges() {
+      return () => { };
     }
   };

@@ -61,3 +61,25 @@ create policy "couple_public_update" on public.couple for update using (true) wi
 
 -- No INSERT/DELETE policies on either table — rows are fixed and pre-seeded
 -- above, the client only ever UPDATEs.
+
+-- Live updates: puts both tables in the realtime publication so the other
+-- partner's device is pushed UPDATE events (see subscribeToChanges in
+-- js/core/supabaseDataProvider.js) instead of needing a manual reload to
+-- see new XP / a completed daily challenge / a finished duel.
+-- `add table` errors if the table is already in the publication, so each is
+-- guarded rather than run bare.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'profiles'
+  ) then
+    alter publication supabase_realtime add table public.profiles;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'couple'
+  ) then
+    alter publication supabase_realtime add table public.couple;
+  end if;
+end $$;

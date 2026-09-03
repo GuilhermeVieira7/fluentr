@@ -148,6 +148,29 @@ const FluentrApp = (function () {
     FluentrRouter.register('comeback', () => setRoute('comeback'));
     FluentrRouter.start(() => {});
     FluentrRouter.render();
+    startLiveSync();
+  }
+
+  // Screens where the partner's activity is actually visible — only these
+  // are worth re-rendering on a live update. Deliberately excludes any
+  // mid-exercise screen: re-rendering under someone answering a question
+  // would wipe their selection, and their own next answer refreshes this
+  // state anyway.
+  const LIVE_REFRESH_ROUTES = ['home', 'league', 'practice', 'progress', 'comeback'];
+
+  function startLiveSync() {
+    if (AppState.unsubscribeLive) return;
+    AppState.unsubscribeLive = FluentrData.subscribeToChanges(async () => {
+      if (AppState.screen !== 'app' || !LIVE_REFRESH_ROUTES.includes(AppState.route)) return;
+      const before = AppState.otherProfile ? FluentrGamification.buildStats(AppState.otherProfile).weeklyXP : 0;
+      await refreshBoth();
+      AppState.couple = await FluentrData.getCouple();
+      const after = FluentrGamification.buildStats(AppState.otherProfile).weeklyXP;
+      if (after > before) {
+        FluentrUI.showToast(`${AppState.otherProfile.name} just earned ${after - before} XP`, 'Live from their device.', 'competitive');
+      }
+      render();
+    });
   }
 
   function setRoute(name) {
@@ -532,14 +555,35 @@ const FluentrApp = (function () {
     mixed: () => window.WL_DATA.lessons.filter((e) => e.type === 'mc' || e.type === 'fill')
   };
 
-  function pickDuelTopic(topic) {
+  // Duels are asynchronous: whoever starts one freezes a 10-question set
+  // into couple.pendingDuel, plays their own round, and the challenge then
+  // waits on the partner's device until they play the *same* questions.
+  // The questions are snapshotted (not just their ids) because the Traps
+  // topic generates its options on the fly — resolving by id later would
+  // hand the second player different distractors.
+  async function pickDuelTopic(topic) {
     const pool = DUEL_TOPIC_POOLS[topic]();
     const chosen = FluentrLessonEngine.shuffle(pool).slice(0, 10).map((e) => ({ uid: e.id, data: e }));
+    const duel = {
+      id: 'duel-' + Date.now(), topic, createdBy: AppState.profile.id,
+      createdAt: new Date().toISOString(), exercises: chosen, results: {}, finalized: false
+    };
+    try {
+      AppState.couple = await FluentrData.updateCouple((c) => { c.pendingDuel = duel; });
+    } catch (e) {
+      FluentrUI.showToast('Could not start the duel', 'Check your connection.', null);
+      return;
+    }
+    startDuelRound(duel);
+  }
+
+  // Plays the local half of a pending duel — the same entry point whether
+  // you're the one who created it or the one answering the challenge.
+  function startDuelRound(pendingDuel) {
     AppState.duel = {
-      topic, exercises: chosen,
-      order: [AppState.profile, AppState.otherProfile],
-      turn: 0, index: 0, answered: false, selected: null,
-      results: {}, startedAt: null, phase: 'pass'
+      id: pendingDuel.id, topic: pendingDuel.topic, exercises: pendingDuel.exercises,
+      index: 0, answered: false, selected: null, score: 0,
+      startedAt: Date.now(), phase: 'play'
     };
     AppState.screen = 'duel';
     render();
@@ -547,28 +591,15 @@ const FluentrApp = (function () {
 
   function renderDuelScreen() {
     const d = AppState.duel;
-    const current = d.order[d.turn];
-    if (d.phase === 'pass') return FluentrUI.renderDuelPassDevice(current.name);
-    if (d.phase === 'result') return FluentrUI.renderDuelResult(d, d.order[0], d.order[1]);
-    return FluentrUI.renderDuelTurn(d, current.name, d.index, { answered: d.answered, selected: d.selected });
-  }
-
-  function duelBeginTurn() {
-    const d = AppState.duel;
-    d.startedAt = Date.now();
-    d.phase = 'play';
-    render();
+    if (d.phase === 'waiting') return FluentrUI.renderDuelWaiting(d, AppState.profile, AppState.otherProfile);
+    if (d.phase === 'result') return FluentrUI.renderDuelResult(d, AppState.profile, AppState.otherProfile);
+    return FluentrUI.renderDuelTurn(d, AppState.profile.name, d.index, { answered: d.answered, selected: d.selected });
   }
 
   function duelAnswer(idx) {
     const d = AppState.duel;
     d.selected = idx; d.answered = true;
-    const ex = d.exercises[d.index].data;
-    const correct = idx === ex.answer;
-    const current = d.order[d.turn];
-    const r = d.results[current.id] || { score: 0, timeSec: 0 };
-    if (correct) r.score += 1;
-    d.results[current.id] = r;
+    if (idx === d.exercises[d.index].data.answer) d.score += 1;
     render();
   }
 
@@ -576,54 +607,81 @@ const FluentrApp = (function () {
     const d = AppState.duel;
     d.index += 1; d.answered = false; d.selected = null;
     if (d.index >= d.exercises.length) {
-      const current = d.order[d.turn];
-      const r = d.results[current.id] || { score: 0, timeSec: 0 };
-      r.timeSec = Math.round((Date.now() - d.startedAt) / 1000);
-      d.results[current.id] = r;
-      d.turn += 1; d.index = 0; d.answered = false; d.selected = null;
-      if (d.turn >= d.order.length) {
-        d.phase = 'result';
-        finalizeDuel();
-      } else {
-        d.phase = 'pass';
-      }
+      submitDuelRound();
+      return;
     }
     render();
   }
 
-  async function finalizeDuel() {
+  // Writes this player's round into the shared pending duel. The finalize
+  // transition (both rounds in) happens *inside* the CAS-protected mutator
+  // and flips a `finalized` flag, so exactly one device can ever win that
+  // race and award the XP — even if both partners happen to finish at the
+  // same moment.
+  async function submitDuelRound() {
     const d = AppState.duel;
-    const [p1, p2] = d.order;
-    const r1 = d.results[p1.id], r2 = d.results[p2.id];
-    // Computed once here and read back by renderDuelResult (via d.winnerId)
-    // instead of being recomputed independently in ui.js — the two copies
-    // of this tie-break used to disagree (<= here, < there), so an exact
-    // score+time tie could show a different winner on screen than the one
-    // XP/counters/history actually credited.
-    const winnerId = r1.score !== r2.score ? (r1.score > r2.score ? p1.id : p2.id) : (r1.timeSec <= r2.timeSec ? p1.id : p2.id);
-    d.winnerId = winnerId;
-    [p1, p2].forEach((p) => { p.counters.duelsPlayed += 1; });
-    const winner = winnerId === p1.id ? p1 : p2;
-    winner.counters.duelsWon += 1;
-    FluentrGamification.awardXP(winner, FL_XP_RULES.DUEL_VICTORY, 'Duel victory');
-    // Duels are pass-the-device, so both players are physically present —
-    // safe to toast either's unlock, unlike single-player badge checks.
-    FluentrGamification.checkBadges(p1, badgeCtx()).forEach((b) => FluentrUI.showToast(`${p1.name}: badge unlocked — ${b.name}`, b.description, 'badge'));
-    FluentrGamification.checkBadges(p2, badgeCtx()).forEach((b) => FluentrUI.showToast(`${p2.name}: badge unlocked — ${b.name}`, b.description, 'badge'));
-    try {
-      await Promise.all([FluentrData.saveProfile(p1), FluentrData.saveProfile(p2)]);
-    } catch (e) { FluentrUI.showToast('Could not save duel result', 'Check your connection.', null); }
-    const record = {
-      id: 'duel-' + Date.now(), date: flTodayISO(), topic: d.topic, winnerId,
-      results: { [p1.id]: { score: r1.score, timeSec: r1.timeSec }, [p2.id]: { score: r2.score, timeSec: r2.timeSec } }
-    };
+    const myResult = { score: d.score, timeSec: Math.round((Date.now() - d.startedAt) / 1000), at: new Date().toISOString() };
+    let finalRecord = null;
     try {
       AppState.couple = await FluentrData.updateCouple((c) => {
+        finalRecord = null; // reset: the mutator re-runs on a CAS retry
+        const pd = c.pendingDuel;
+        if (!pd || pd.id !== d.id) return;
+        pd.results[AppState.profile.id] = myResult;
+        const ids = Object.keys(pd.results);
+        if (ids.length < 2 || pd.finalized) return;
+        pd.finalized = true;
+        const [aId, bId] = [AppState.profile.id, AppState.otherProfile.id];
+        const ra = pd.results[aId], rb = pd.results[bId];
+        const winnerId = ra.score !== rb.score ? (ra.score > rb.score ? aId : bId) : (ra.timeSec <= rb.timeSec ? aId : bId);
+        finalRecord = {
+          id: pd.id, date: flTodayISO(), topic: pd.topic, winnerId,
+          results: { [aId]: { score: ra.score, timeSec: ra.timeSec }, [bId]: { score: rb.score, timeSec: rb.timeSec } }
+        };
         c.duelHistory = c.duelHistory || [];
-        c.duelHistory.unshift(record);
+        c.duelHistory.unshift(finalRecord);
         if (c.duelHistory.length > 30) c.duelHistory.length = 30;
+        c.pendingDuel = null;
       });
-    } catch (e) { /* duel history is a nice-to-have log; XP/counters above already saved */ }
+    } catch (e) {
+      FluentrUI.showToast('Could not submit your round', 'Check your connection.', null);
+      return;
+    }
+
+    if (!finalRecord) {
+      d.phase = 'waiting';
+      d.myResult = myResult;
+      render();
+      return;
+    }
+    await awardDuelOutcome(finalRecord);
+    d.phase = 'result';
+    d.record = finalRecord;
+    render();
+  }
+
+  // Runs only on the device that won the finalize race. Both profiles are
+  // written through updateProfile (CAS) rather than mutating the local
+  // copies, since one of them is the partner's row and may be being
+  // written from their device at the same time.
+  async function awardDuelOutcome(record) {
+    const ids = Object.keys(record.results);
+    try {
+      for (const id of ids) {
+        const updated = await FluentrData.updateProfile(id, (p) => {
+          p.counters.duelsPlayed += 1;
+          if (record.winnerId === id) {
+            p.counters.duelsWon += 1;
+            FluentrGamification.awardXP(p, FL_XP_RULES.DUEL_VICTORY, 'Duel victory');
+          }
+          FluentrGamification.checkBadges(p, badgeCtx());
+        });
+        if (id === AppState.profile.id) AppState.profile = updated;
+        else AppState.otherProfile = updated;
+      }
+    } catch (e) {
+      FluentrUI.showToast('Could not save duel result', 'Check your connection.', null);
+    }
   }
 
   /* ============ Delegated events ============ */
@@ -730,7 +788,14 @@ const FluentrApp = (function () {
       case 'answer-couple': answerCouple(parseInt(el.dataset.index, 10)); break;
 
       case 'pick-duel-topic': pickDuelTopic(el.dataset.topic); break;
-      case 'duel-begin-turn': duelBeginTurn(); break;
+      case 'play-pending-duel': startDuelRound(AppState.couple.pendingDuel); break;
+      case 'cancel-pending-duel':
+        if (window.confirm('Cancel this duel? Any round already played is discarded.')) {
+          FluentrData.updateCouple((c) => { c.pendingDuel = null; })
+            .then((c) => { AppState.couple = c; FluentrRouter.navigate('league'); render(); })
+            .catch(() => FluentrUI.showToast('Could not cancel the duel', 'Check your connection.', null));
+        }
+        break;
       case 'answer-duel': duelAnswer(parseInt(el.dataset.index, 10)); break;
       case 'duel-next-turn': duelNextTurnItem(); break;
 
