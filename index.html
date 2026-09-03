@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Fluentr — English you can actually use</title>
+<meta name="description" content="Fluentr is a local-first, installable PWA for learning real-world English — Brazilian English Traps, English SOS, What Should I Say, Write Better, and Technical English in Context. Built for Guilherme and Rayssa to learn together.">
+<meta name="theme-color" content="#0d132b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fluentr">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/pages.css">
+<link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+  <div id="app-shell"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <div id="levelup-root"></div>
+
+  <!-- Data layer (self-registers into window.WL_DATA / WL_CURRICULUM / WL_BADGES, order-independent) -->
+  <script src="data/curriculum.js"></script>
+  <script src="data/badges.js"></script>
+  <script src="data/traps.js"></script>
+  <script src="data/say.js"></script>
+  <script src="data/writing.js"></script>
+  <script src="data/technical.js"></script>
+  <script src="data/sos.js"></script>
+  <script src="data/lessons.js"></script>
+  <script src="data/coupleChallenges.js"></script>
+  <script src="data/simulators.js"></script>
+  <script src="data/placement.js"></script>
+
+  <!-- Core layer (data services, gamification, PWA) -->
+  <script src="js/core/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/dist/umd/supabase.js"></script>
+  <script src="js/core/storage.js"></script>
+  <script src="js/core/dataService.js"></script>
+  <script src="js/core/supabaseAuth.js"></script>
+  <script src="js/core/supabaseDataProvider.js"></script>
+  <script src="js/core/dataServiceSelect.js"></script>
+  <script src="js/core/gamification.js"></script>
+  <script src="js/core/profiles.js"></script>
+  <script src="js/core/mascot.js"></script>
+  <script src="js/core/feedback.js"></script>
+  <script src="js/core/pwa.js"></script>
+
+  <!-- App layer -->
+  <script src="js/lessonEngine.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

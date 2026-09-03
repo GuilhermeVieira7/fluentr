@@ -1,0 +1,50 @@
+/* ============================================================
+   FLUENTR — Page-specific layout tweaks
+   ============================================================ */
+
+/* ---- Profile gate / onboarding ---- */
+.gate-logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 22px; }
+.gate-tagline { color: var(--ink-soft); font-size: 14.5px; max-width: 32ch; }
+.profile-pick-grid { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.profile-pick-card {
+  width: 140px; padding: 22px 14px; border-radius: var(--radius-lg);
+  border: 1.5px solid var(--line); background: var(--surface); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  transition: border-color .15s, transform .1s;
+}
+.profile-pick-card:hover { border-color: var(--brand); transform: translateY(-2px); }
+.profile-pick-avatar { width: 56px; height: 56px; border-radius: 50%; font-size: 21px; }
+.profile-pick-name { font-weight: 700; font-size: 14.5px; }
+.profile-pick-sub { font-size: 11px; color: var(--ink-faint); }
+
+.onboard-options { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; }
+.onboard-option { padding: 16px 18px; border-radius: var(--radius-md); border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; text-align: left; font-weight: 600; font-size: 14.5px; }
+.onboard-option.selected { border-color: var(--brand); background: var(--brand-soft); }
+
+/* ---- Placement result ---- */
+.level-result-badge { width: 110px; height: 110px; border-radius: 50%; background: var(--brand); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto 18px; }
+.level-result-badge .lvl { font-family: var(--font-display); font-size: 30px; font-weight: 800; }
+.level-result-badge .lvl-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; opacity: .85; }
+.skill-score-row { margin-bottom: 12px; }
+.skill-score-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+
+/* ---- Week recap ---- */
+.recap-hero { text-align: center; padding: 26px 10px; }
+.recap-big-number { font-family: var(--font-display); font-size: 40px; font-weight: 800; color: var(--brand); }
+
+/* ---- Progress page skill bars ---- */
+.progress-skill-row { margin-bottom: 16px; }
+.progress-skill-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.progress-skill-name { font-size: 13.5px; font-weight: 700; }
+.progress-skill-pct { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--ink-soft); }
+
+/* ---- Weekday streak dots ---- */
+.week-dots { display: flex; justify-content: space-between; gap: 6px; }
+.week-dot-col { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; }
+.week-dot-letter { font-size: 10.5px; font-weight: 700; color: var(--ink-faint); }
+.week-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--line-soft); display: flex; align-items: center; justify-content: center; }
+.week-dot.filled { background: var(--streak); color: #fff; }
+.week-dot.today { box-shadow: 0 0 0 2px var(--brand); }
+
+/* ---- Duel setup ---- */
+.duel-topic-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }

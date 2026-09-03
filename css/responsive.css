@@ -1,0 +1,49 @@
+/* ============================================================
+   FLUENTR — Responsive rules
+   Mobile-first (375-430px primary target) -> tablet -> desktop rail
+   ============================================================ */
+
+/* Tablet and up: introduce a left rail, drop the bottom nav */
+@media (min-width: 900px) {
+  #app-shell { flex-direction: row; }
+  .rail {
+    display: flex; flex-direction: column; gap: 4px;
+    width: var(--rail-w); flex-shrink: 0; height: 100vh; position: sticky; top: 0;
+    padding: 22px 16px; border-right: 1px solid var(--line-soft); background: var(--surface);
+  }
+  .rail-brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 24px; font-family: var(--font-display); font-weight: 800; font-size: 17px; }
+  .rail-item {
+    display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: var(--radius-md);
+    color: var(--ink-soft); font-size: 14px; font-weight: 700; cursor: pointer; border: none; background: none; width: 100%; text-align: left;
+  }
+  .rail-item:hover { background: var(--surface-alt); color: var(--ink); }
+  .rail-item.active { background: var(--brand-soft); color: var(--brand-strong); }
+  .rail-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+  .rail-profile { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--radius-md); cursor: pointer; }
+  .rail-profile:hover { background: var(--surface-alt); }
+
+  .bottom-nav, .topbar { display: none; }
+  .main-col { flex: 1; min-width: 0; }
+  #view-root { max-width: 780px; padding: 32px 40px 60px; }
+  .pillar-grid { grid-template-columns: repeat(4, 1fr); }
+  .badge-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (min-width: 1180px) {
+  #view-root { max-width: 900px; }
+  .pillar-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* Small phones */
+@media (max-width: 380px) {
+  #view-root { padding: 16px 14px calc(var(--bottomnav-h) + 24px); }
+  .hero { padding: 18px 16px; }
+  .hero-greeting { font-size: 19px; }
+  .pillar-grid { gap: 8px; }
+  .complete-stat-grid { gap: 6px; }
+}
+
+/* Comfortable touch targets */
+@media (max-width: 899px) {
+  .option-btn, .word-chip, .btn, .path-node, .icon-btn, .badge-card, .pillar-card { min-height: 44px; }
+}
