@@ -49,10 +49,13 @@ as $$
 $$;
 
 -- SELECT: any claimed couple member can read both profiles (needed for the
--- Couple League/Duels) and the shared couple row.
+-- Couple League/Duels) and the shared couple row. Unclaimed rows are also
+-- readable by anyone signed in, regardless of membership — otherwise
+-- nobody could ever see (and thus claim) a profile for the first time,
+-- since claiming is what makes you a member in the first place.
 drop policy if exists "profiles_select_couple_members" on public.profiles;
 create policy "profiles_select_couple_members" on public.profiles
-  for select using (public.fl_is_couple_member());
+  for select using (owner_id is null or public.fl_is_couple_member());
 
 drop policy if exists "couple_select_couple_members" on public.couple;
 create policy "couple_select_couple_members" on public.couple
