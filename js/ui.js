@@ -163,24 +163,19 @@ const FluentrUI = (function () {
     </div>`;
   }
 
-  function renderAuthGate(sentTo) {
+  function renderAuthGate() {
     const flu = FluentrMascot.avatar('idle', 84);
-    if (sentTo) {
-      return `<div class="profile-gate">
-        <div>${flu}</div>
-        <div class="gate-logo">${FluentrIcons.icon('spark', 26)}FLUENTR</div>
-        <h2 style="font-size:19px;margin-top:6px;">Check your email</h2>
-        <p class="text-soft" style="text-align:center;max-width:280px;">We sent a sign-in link to <strong>${esc(sentTo)}</strong>. Open it on this device to continue.</p>
-        <button class="btn btn-ghost btn-sm" data-action="auth-try-again">Use a different email</button>
-      </div>`;
-    }
     return `<div class="profile-gate">
       <div>${flu}</div>
       <div class="gate-logo">${FluentrIcons.icon('spark', 26)}FLUENTR</div>
       <div class="gate-tagline">English you can actually use.</div>
       <div style="width:100%;max-width:300px;">
-        <div class="form-row"><label class="form-label">Your email</label><input type="email" class="form-input" id="auth-email-input" placeholder="you@example.com" autocomplete="email"></div>
-        <button class="btn btn-primary btn-block mt-8" data-action="send-magic-link">Send sign-in link</button>
+        <div class="form-row"><label class="form-label">Email</label><input type="email" class="form-input" id="auth-email-input" placeholder="you@example.com" autocomplete="email"></div>
+        <div class="form-row"><label class="form-label">Password</label><input type="password" class="form-input" id="auth-password-input" placeholder="••••••••" autocomplete="current-password"></div>
+        <div class="flex gap-8">
+          <button class="btn btn-primary btn-block" data-action="auth-sign-in">Sign in</button>
+          <button class="btn btn-subtle btn-block" data-action="auth-sign-up">Create account</button>
+        </div>
         <div id="auth-error" class="text-faint" style="color:var(--danger);font-size:12.5px;margin-top:8px;text-align:center;"></div>
       </div>
     </div>`;

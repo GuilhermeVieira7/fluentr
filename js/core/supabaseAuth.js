@@ -1,8 +1,14 @@
 /* FLUENTR — core/supabaseAuth.js
-   Thin wrapper around supabase-js auth: magic-link sign-in, session state,
-   and claiming one of the two known profile rows (guilherme/rayssa) on
-   first login. Only meaningful when FL_CONFIG has real Supabase credentials
-   — see core/config.js and core/supabaseDataProvider.js. */
+   Thin wrapper around supabase-js auth: email+password sign-in/sign-up,
+   session state, and claiming one of the two known profile rows
+   (guilherme/rayssa) on first login. Only meaningful when FL_CONFIG has
+   real Supabase credentials — see core/config.js and core/supabaseDataProvider.js.
+   Password auth (not magic-link) on purpose — the project's default email
+   sending is rate-limited to a handful of emails/hour with no SMTP
+   configured, which made magic links impractical for the two of you to
+   test/use. Sign-up requires "Confirm email" turned OFF in the Supabase
+   dashboard (Authentication → Providers → Email) — otherwise it still
+   needs to send (and wait on) a confirmation email. */
 
 const FluentrSupabaseAuth = (function () {
   let client = null;
@@ -15,22 +21,10 @@ const FluentrSupabaseAuth = (function () {
   function getClient() {
     if (!client) {
       client = window.supabase.createClient(FL_CONFIG.SUPABASE_URL, FL_CONFIG.SUPABASE_ANON_KEY, {
-        auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+        auth: { persistSession: true, autoRefreshToken: true }
       });
     }
     return client;
-  }
-
-  // Magic-link redirects land back on this same page with a `?code=...`
-  // query param (PKCE flow) — supabase-js consumes it automatically on
-  // client creation via detectSessionInUrl. Strip it afterward so a reload
-  // doesn't carry a stale/used code around.
-  function cleanUrlAfterAuth() {
-    if (window.location.search.includes('code=')) {
-      const url = new URL(window.location.href);
-      url.search = '';
-      window.history.replaceState({}, document.title, url.toString());
-    }
   }
 
   async function getSession() {
@@ -38,10 +32,17 @@ const FluentrSupabaseAuth = (function () {
     return data.session || null;
   }
 
-  async function sendMagicLink(email) {
-    const redirectTo = window.location.origin + window.location.pathname;
-    const { error } = await getClient().auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+  async function signUpWithPassword(email, password) {
+    const { data, error } = await getClient().auth.signUp({ email, password });
     if (error) throw error;
+    if (!data.session) throw new Error('Account created, but email confirmation is still required — turn off "Confirm email" in Supabase (Authentication → Providers → Email) to skip it.');
+    return data.session;
+  }
+
+  async function signInWithPassword(email, password) {
+    const { data, error } = await getClient().auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data.session;
   }
 
   async function signOut() {
@@ -84,5 +85,5 @@ const FluentrSupabaseAuth = (function () {
     return claimed;
   }
 
-  return { isEnabled, getClient, cleanUrlAfterAuth, getSession, sendMagicLink, signOut, getClaimedProfileId, getUnclaimedProfileIds, claimProfile };
+  return { isEnabled, getClient, getSession, signUpWithPassword, signInWithPassword, signOut, getClaimedProfileId, getUnclaimedProfileIds, claimProfile };
 })();

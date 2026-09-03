@@ -53,12 +53,7 @@ const FluentrApp = (function () {
     applyTheme(theme);
 
     if (FluentrSupabaseAuth.isEnabled()) {
-      // getSession() creates the Supabase client on first call, which is what
-      // actually reads the `?code=` param and exchanges it for a session —
-      // the URL must still have it at that point, so cleanUrlAfterAuth()
-      // (stripping it) has to run AFTER, never before.
       const session = await FluentrSupabaseAuth.getSession();
-      FluentrSupabaseAuth.cleanUrlAfterAuth();
       if (!session) { showAuthGate(); return; }
       AppState.cloudEmail = session.user.email;
       const claimedId = await FluentrSupabaseAuth.getClaimedProfileId();
@@ -74,9 +69,9 @@ const FluentrApp = (function () {
     await enterProfile(activeId);
   }
 
-  function showAuthGate(sentTo) {
+  function showAuthGate() {
     AppState.screen = 'auth-gate';
-    shellEl.innerHTML = FluentrUI.renderAuthGate(sentTo);
+    shellEl.innerHTML = FluentrUI.renderAuthGate();
   }
 
   async function showClaimGate() {
@@ -631,17 +626,17 @@ const FluentrApp = (function () {
     switch (a) {
       case 'navigate': FluentrRouter.navigate(el.dataset.route); break;
       case 'pick-profile': enterProfile(el.dataset.id); break;
-      case 'send-magic-link': {
-        const input = document.getElementById('auth-email-input');
-        const email = input ? input.value.trim() : '';
+      case 'auth-sign-in': case 'auth-sign-up': {
+        const email = (document.getElementById('auth-email-input') || {}).value || '';
+        const password = (document.getElementById('auth-password-input') || {}).value || '';
         const errEl = document.getElementById('auth-error');
-        if (!email || !email.includes('@')) { if (errEl) errEl.textContent = 'Enter a valid email.'; break; }
-        FluentrSupabaseAuth.sendMagicLink(email)
-          .then(() => showAuthGate(email))
-          .catch((err) => { if (errEl) errEl.textContent = err.message || 'Could not send the link. Try again.'; });
+        if (!email.trim() || !email.includes('@')) { if (errEl) errEl.textContent = 'Enter a valid email.'; break; }
+        if (!password || password.length < 6) { if (errEl) errEl.textContent = 'Password must be at least 6 characters.'; break; }
+        const call = a === 'auth-sign-up' ? FluentrSupabaseAuth.signUpWithPassword(email.trim(), password) : FluentrSupabaseAuth.signInWithPassword(email.trim(), password);
+        call.then((session) => { AppState.cloudEmail = session.user.email; boot(); })
+          .catch((err) => { if (errEl) errEl.textContent = err.message || 'Something went wrong. Try again.'; });
         break;
       }
-      case 'auth-try-again': showAuthGate(); break;
       case 'claim-profile': {
         FluentrSupabaseAuth.claimProfile(el.dataset.id).then((ok) => {
           if (ok) { FluentrData.setActiveProfileId(el.dataset.id); enterProfile(el.dataset.id); }
