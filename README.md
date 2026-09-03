@@ -116,32 +116,30 @@ Supabase credentials:
   `js/core/storage.js`, two object stores (`profiles`, `couple`). No
   network, no accounts — this is what runs when `config.js` is empty.
 - **`SupabaseDataProvider`** (`js/core/supabaseDataProvider.js`) — the same
-  methods against Supabase Postgres tables (`supabase/schema.sql`), gated by
-  Row Level Security scoped to `auth.uid()`. Auth is magic-link email
-  (`js/core/supabaseAuth.js`); on first login each person claims one of the
-  two `profiles` rows (`guilherme`/`rayssa`) by setting its `owner_id` to
-  their own account — after that it's permanently theirs, and RLS lets both
-  claimed members read each other's profile (needed for the Couple League)
-  but only ever write their own.
+  methods against Supabase Postgres tables (`supabase/schema.sql`) instead
+  of IndexedDB. No accounts: it's just the two of you, so both `profiles`
+  rows and the `couple` row are readable/writable by anyone with the
+  project's anon key — same trust model the original free profile picker
+  used (pick your name, no password), just backed by shared Postgres so
+  progress syncs across devices instead of staying per-device.
 
 ### Cloud sync setup
 
 1. Create a Supabase project, then run `supabase/schema.sql` once in its SQL
    Editor (safe to re-run — every statement is idempotent).
-2. In **Authentication → URL Configuration**, add every origin you'll open
-   the app from (`http://localhost:8123` for local dev, plus your deployed
-   URL) to **Redirect URLs** — magic links are rejected otherwise.
-3. Put the project's URL and anon key in `js/core/config.js`. The anon key
-   is meant to be public; RLS is the actual security boundary, not secrecy
-   of that key.
-4. Reload the app — the auth gate (email → magic link → "which of you is
-   this?") replaces the old profile-picker automatically. Clear
+2. Put the project's URL and anon key in `js/core/config.js`. The anon key
+   is meant to be public; RLS (wide open on purpose here — see the schema
+   file) is Supabase's real security boundary, not secrecy of that key.
+3. Reload the app — the exact same profile-picker gate as before, just now
+   reading/writing Supabase instead of the browser's IndexedDB. Clear
    `SUPABASE_URL` in `config.js` to go back to local-only.
 
 No changes needed in `app.js`, `ui.js`, or `lessonEngine.js` either way —
-they only ever see `FluentrData`. This is what unlocks: real accounts,
-cross-device sync, and (not yet built) Realtime Couple League updates and
-remote Duels.
+they only ever see `FluentrData`, and boot() doesn't know or care which
+provider is behind it. This is what unlocks cross-device sync and cloud
+backup; real per-person accounts would be a bigger lift than it first
+looks (see `supabase/schema.sql`'s comment on why a prior RLS-per-account
+attempt got shelved) and isn't in scope here.
 
 ## PWA & Offline
 
@@ -264,10 +262,9 @@ Path, all five pillars, XP/streak/hearts, badges, Couple League, local
 Duels, Daily Couple Challenge, Placement test, Phrasebook, export/import.
 
 **V2** — Supabase (`SupabaseDataProvider`, see "Cloud sync setup" above),
-magic-link auth, cross-device sync, cloud backup. Live once
-`supabase/schema.sql` is run and `js/core/config.js` has real credentials —
-the app then shows an email sign-in gate instead of the free profile picker,
-and both profiles sync through Postgres instead of per-device IndexedDB.
+cross-device sync, cloud backup. Live once `supabase/schema.sql` is run and
+`js/core/config.js` has real credentials — same profile-picker gate as V1,
+now backed by Postgres instead of per-device IndexedDB. No real accounts.
 Not yet built: Realtime Couple League (today's League still reads on
 navigation, not via a live subscription) and remote Duels (Duels still
 assume both people are on the same device/session).

@@ -163,39 +163,6 @@ const FluentrUI = (function () {
     </div>`;
   }
 
-  function renderAuthGate() {
-    const flu = FluentrMascot.avatar('idle', 84);
-    return `<div class="profile-gate">
-      <div>${flu}</div>
-      <div class="gate-logo">${FluentrIcons.icon('spark', 26)}FLUENTR</div>
-      <div class="gate-tagline">English you can actually use.</div>
-      <div style="width:100%;max-width:300px;">
-        <div class="form-row"><label class="form-label">Email</label><input type="email" class="form-input" id="auth-email-input" placeholder="you@example.com" autocomplete="email"></div>
-        <div class="form-row"><label class="form-label">Password</label><input type="password" class="form-input" id="auth-password-input" placeholder="••••••••" autocomplete="current-password"></div>
-        <div class="flex gap-8">
-          <button class="btn btn-primary btn-block" data-action="auth-sign-in">Sign in</button>
-          <button class="btn btn-subtle btn-block" data-action="auth-sign-up">Create account</button>
-        </div>
-        <div id="auth-error" class="text-faint" style="color:var(--danger);font-size:12.5px;margin-top:8px;text-align:center;"></div>
-      </div>
-    </div>`;
-  }
-
-  function renderClaimGate(unclaimedIds) {
-    const cards = FL_KNOWN_PROFILES.filter((p) => unclaimedIds.includes(p.id)).map((p) => `
-      <button class="profile-pick-card" data-action="claim-profile" data-id="${p.id}">
-        <div class="avatar profile-pick-avatar" style="background:${p.color};">${initials(p.name)}</div>
-        <div class="profile-pick-name">${p.name}</div>
-        <div class="profile-pick-sub">This is me</div>
-      </button>`).join('');
-    return `<div class="profile-gate">
-      <div>${FluentrMascot.avatar('welcome-back', 84)}</div>
-      <div class="gate-logo">${FluentrIcons.icon('spark', 26)}FLUENTR</div>
-      <div class="page-eyebrow text-faint" style="margin-bottom:14px;font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;">Which one of you is this?</div>
-      <div class="profile-pick-grid">${cards || '<div class="text-soft">Both profiles are already claimed by other accounts.</div>'}</div>
-    </div>`;
-  }
-
   function renderOnboardingGoal(profile) {
     const options = FL_GOAL_OPTIONS.map((g) => `
       <button class="onboard-option" data-action="pick-goal" data-goal="${g.id}">${esc(g.label)}</button>`).join('');
@@ -1152,10 +1119,6 @@ const FluentrUI = (function () {
         <input type="file" id="import-file-input" accept="application/json" class="visually-hidden">
       </div>
       ${window.FLUENTR_INSTALLABLE ? `<div class="card" style="margin-bottom:14px;"><button class="btn btn-primary btn-block" data-action="install-pwa">Install Fluentr</button></div>` : ''}
-      ${state.cloudEmail ? `<div class="card" style="margin-bottom:14px;">
-        <div class="settings-row"><div><div class="settings-row-title">Cloud sync</div><div class="settings-row-sub">Signed in as ${esc(state.cloudEmail)}</div></div></div>
-        <button class="btn btn-subtle btn-sm mt-8" data-action="sign-out">Sign out</button>
-      </div>` : ''}
       <div class="card" style="border-color:var(--danger-soft);">
         <div class="settings-row-title" style="margin-bottom:10px;">Danger zone</div>
         <button class="btn btn-danger btn-sm" data-action="reset-profile">Reset this profile</button>
@@ -1217,7 +1180,7 @@ const FluentrUI = (function () {
   return {
     esc, pct, initials, avatar, xpRing, heartsRow, timeAgo, greeting,
     renderRail, renderTopbar, renderBottomNav, NAV_ITEMS, renderBootSkeleton,
-    renderProfileGate, renderAuthGate, renderClaimGate, renderOnboardingGoal, renderOnboardingPlacementChoice,
+    renderProfileGate, renderOnboardingGoal, renderOnboardingPlacementChoice,
     renderPlacementQuestion, renderPlacementResult,
     renderHome, renderLearn, renderExerciseItem, renderLessonComplete, renderOutOfHearts,
     renderPractice, renderTraps, renderSay, renderSayDetail, renderWriting, renderWritingDetail,

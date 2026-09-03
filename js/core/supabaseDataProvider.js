@@ -1,10 +1,9 @@
 /* FLUENTR — core/supabaseDataProvider.js
    Implements the exact same interface as LocalDataProvider (core/dataService.js)
-   against the Supabase tables in supabase/schema.sql. RLS scopes writes to
-   auth.uid() — see that file — so this never needs to check ownership itself;
-   a write to a row you don't own just affects zero rows and we surface that.
-   Requires a signed-in session (see supabaseAuth.js); app.js only reaches
-   this provider's methods after the auth/claim gates have passed. */
+   against the Supabase tables in supabase/schema.sql. No accounts — both
+   profiles/couple rows are readable and writable by anyone with the anon
+   key (see that file for why). app.js's boot/gate flow doesn't need to
+   know or care which provider is active. */
 
 const SupabaseDataProvider = (function () {
 
@@ -32,13 +31,20 @@ const SupabaseDataProvider = (function () {
       return rowToProfile(data);
     },
 
-    // Rows are pre-seeded by supabase/schema.sql for both known profiles —
-    // this never needs to INSERT (no INSERT policy exists for clients).
+    // Rows are pre-seeded by supabase/schema.sql for both known profiles,
+    // but with an empty `data: {}` — so the row always exists, but is only
+    // really "created" once it has a name. (LocalDataProvider's equivalent
+    // check is simpler — !p — because there a missing row IS the signal;
+    // here the row is never missing, just possibly still empty.) On an
+    // empty row this builds the real defaults and writes them back, same
+    // self-healing LocalDataProvider does for a first-ever profile.
     async ensureProfile(id) {
       const existing = await this.getProfile(id);
-      if (existing) return existing;
+      if (existing && existing.name) return existing;
       const known = FL_KNOWN_PROFILES.find((k) => k.id === id);
-      return flDefaultProfile(id, known ? known.name : id, known ? known.color : '#5b3df5');
+      const fresh = flDefaultProfile(id, known ? known.name : id, known ? known.color : '#5b3df5');
+      await this.saveProfile(fresh);
+      return fresh;
     },
 
     async saveProfile(profile) {
@@ -71,6 +77,9 @@ const SupabaseDataProvider = (function () {
     // Device-local convenience only (which claimed profile this browser is
     // currently viewing) — not user data, so it stays in localStorage same
     // as LocalDataProvider. Real access control is the Supabase session.
+    // Which profile this browser is currently viewing — same free-pick
+    // model as LocalDataProvider, just against shared cloud data instead
+    // of a local IndexedDB.
     getActiveProfileId() {
       try { return window.localStorage.getItem('fluentr_active_profile'); } catch (e) { return null; }
     },
@@ -91,15 +100,12 @@ const SupabaseDataProvider = (function () {
       return JSON.stringify({ exportedAt: new Date().toISOString(), profiles, couple }, null, 2);
     },
 
-    // RLS means this can only ever actually write the profile(s) you own —
-    // importing a backup that includes your partner's profile silently
-    // no-ops on their row rather than failing the whole import.
     async importAll(jsonString) {
       const data = JSON.parse(jsonString);
       if (Array.isArray(data.profiles)) {
-        for (const p of data.profiles) { try { await this.saveProfile(p); } catch (e) { /* not yours to write */ } }
+        for (const p of data.profiles) await this.saveProfile(p);
       }
-      if (data.couple) { try { await this.updateCouple((c) => Object.assign(c, data.couple)); } catch (e) { /* ignore */ } }
+      if (data.couple) await this.updateCouple((c) => Object.assign(c, data.couple));
       return true;
     },
 
@@ -110,12 +116,11 @@ const SupabaseDataProvider = (function () {
       return fresh;
     },
 
-    // Can only ever reset the caller's own claimed profile — RLS has no
-    // notion of "all data" here, unlike LocalDataProvider's single device.
+    // Resets both profiles and the shared couple row — there's no
+    // per-account scoping to limit this to "just mine" any more.
     async resetAll() {
-      const myId = await FluentrSupabaseAuth.getClaimedProfileId();
-      if (!myId) return;
-      await this.resetProfile(myId);
+      for (const k of FL_KNOWN_PROFILES) await this.resetProfile(k.id);
+      await this.updateCouple((c) => Object.assign(c, flDefaultCouple(), { id: 'main' }));
     }
   };
 })();

@@ -1,18 +1,24 @@
 -- FLUENTR — Supabase schema for SupabaseDataProvider (V2)
 -- Safe to run more than once (IF NOT EXISTS / OR REPLACE / DROP POLICY IF
--- EXISTS throughout). Also safe against the pre-existing `profiles`/`couple`
--- tables an earlier session created on this project (id + data + updated_at,
--- RLS on, zero policies, no owner_id) — this adds owner_id and the policies
--- without touching any data already in `data`.
+-- EXISTS throughout).
 -- Mirrors the exact JSON shape LocalDataProvider already uses (flDefaultProfile /
 -- flDefaultCouple in js/core/dataService.js) — the `data` column is that object.
+--
+-- No real accounts: it's just the two of you, so access control is "you
+-- have the app's URL and the anon key" (the anon key is meant to be public
+-- regardless — this is the same trust model the original free profile
+-- picker used, just backed by shared Postgres instead of per-device
+-- IndexedDB). If you ever want per-person auth back, that needs RLS scoped
+-- to auth.uid() — see git history for a prior attempt and why it's trickier
+-- than it looks (STABLE functions in a SELECT policy don't see a row an
+-- UPDATE in the very same statement just wrote, which broke first-time
+-- profile claiming in a way that took a while to track down).
 
 create table if not exists public.profiles (
   id text primary key,                 -- 'guilherme' | 'rayssa' — matches FL_KNOWN_PROFILES
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-alter table public.profiles add column if not exists owner_id uuid references auth.users(id); -- null until claimed on first magic-link login
 
 create table if not exists public.couple (
   id text primary key,                 -- always 'main'
@@ -34,47 +40,24 @@ on conflict (id) do nothing;
 alter table public.profiles enable row level security;
 alter table public.couple enable row level security;
 
--- A signed-in user counts as "in the couple" once they've claimed a profile
--- row (owner_id set to their auth.uid()). Until then they can't read or
--- write anything — claiming is the one exception, gated separately below.
-create or replace function public.fl_is_couple_member()
-returns boolean
-language sql
-security definer
-stable
-as $$
-  select exists (
-    select 1 from public.profiles where owner_id = auth.uid()
-  );
-$$;
-
--- SELECT: any claimed couple member can read both profiles (needed for the
--- Couple League/Duels) and the shared couple row. Unclaimed rows are also
--- readable by anyone signed in, regardless of membership — otherwise
--- nobody could ever see (and thus claim) a profile for the first time,
--- since claiming is what makes you a member in the first place.
+-- Clean up policies/columns/functions from an earlier per-account design.
 drop policy if exists "profiles_select_couple_members" on public.profiles;
-create policy "profiles_select_couple_members" on public.profiles
-  for select using (owner_id is null or public.fl_is_couple_member());
-
-drop policy if exists "couple_select_couple_members" on public.couple;
-create policy "couple_select_couple_members" on public.couple
-  for select using (public.fl_is_couple_member());
-
--- UPDATE: you can only ever write your own row. Two cases —
---  1) claiming: row is unclaimed (owner_id is null) and you're setting it to yourself
---  2) already yours: owner_id already equals your uid
 drop policy if exists "profiles_update_own" on public.profiles;
-create policy "profiles_update_own" on public.profiles
-  for update
-  using (owner_id is null or owner_id = auth.uid())
-  with check (owner_id = auth.uid());
-
--- Shared couple state (streak, daily challenge, duels) is writable by any
--- claimed member of the couple, not just one owner.
+drop policy if exists "couple_select_couple_members" on public.couple;
 drop policy if exists "couple_update_couple_members" on public.couple;
-create policy "couple_update_couple_members" on public.couple
-  for update using (public.fl_is_couple_member());
+drop function if exists public.fl_is_couple_member();
+alter table public.profiles drop column if exists owner_id;
+
+-- Open read/write to anyone with the anon key (see note above on why).
+drop policy if exists "profiles_public_select" on public.profiles;
+create policy "profiles_public_select" on public.profiles for select using (true);
+drop policy if exists "profiles_public_update" on public.profiles;
+create policy "profiles_public_update" on public.profiles for update using (true) with check (true);
+
+drop policy if exists "couple_public_select" on public.couple;
+create policy "couple_public_select" on public.couple for select using (true);
+drop policy if exists "couple_public_update" on public.couple;
+create policy "couple_public_update" on public.couple for update using (true) with check (true);
 
 -- No INSERT/DELETE policies on either table — rows are fixed and pre-seeded
 -- above, the client only ever UPDATEs.

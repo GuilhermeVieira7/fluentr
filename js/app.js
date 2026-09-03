@@ -16,8 +16,7 @@ const FluentrApp = (function () {
     technical: { openId: null, audience: null },
     traps: { filter: '' },
     sos: { view: 'hub', packId: null, catId: null, warmup: null },
-    onboardingId: null,
-    cloudEmail: null
+    onboardingId: null
   };
 
   function currentHearts() { return AppState.profile ? AppState.profile.hearts.count : 5; }
@@ -52,32 +51,10 @@ const FluentrApp = (function () {
     const theme = FluentrData.getTheme();
     applyTheme(theme);
 
-    if (FluentrSupabaseAuth.isEnabled()) {
-      const session = await FluentrSupabaseAuth.getSession();
-      if (!session) { showAuthGate(); return; }
-      AppState.cloudEmail = session.user.email;
-      const claimedId = await FluentrSupabaseAuth.getClaimedProfileId();
-      if (!claimedId) { await showClaimGate(); return; }
-      FluentrData.setActiveProfileId(claimedId);
-      await enterProfile(claimedId);
-      return;
-    }
-
     const activeId = FluentrData.getActiveProfileId();
     if (!activeId) { await showGate(); return; }
 
     await enterProfile(activeId);
-  }
-
-  function showAuthGate() {
-    AppState.screen = 'auth-gate';
-    shellEl.innerHTML = FluentrUI.renderAuthGate();
-  }
-
-  async function showClaimGate() {
-    const unclaimed = await FluentrSupabaseAuth.getUnclaimedProfileIds();
-    AppState.screen = 'claim-gate';
-    shellEl.innerHTML = FluentrUI.renderClaimGate(unclaimed);
   }
 
   async function showGate() {
@@ -171,8 +148,6 @@ const FluentrApp = (function () {
 
   function render() {
     if (AppState.screen === 'gate') return; // already rendered
-    if (AppState.screen === 'auth-gate') return; // already rendered
-    if (AppState.screen === 'claim-gate') return; // already rendered
     if (AppState.screen === 'onboard-goal') { shellEl.innerHTML = FluentrUI.renderOnboardingGoal(AppState.profile); return; }
     if (AppState.screen === 'onboard-placement-choice') { shellEl.innerHTML = FluentrUI.renderOnboardingPlacementChoice(AppState.profile); return; }
     if (AppState.screen === 'placement') { shellEl.innerHTML = renderPlacementScreen(); return; }
@@ -212,7 +187,7 @@ const FluentrApp = (function () {
       case 'profile': return FluentrUI.renderProfile(p, op);
       case 'progress': return FluentrUI.renderProgress(p);
       case 'phrasebook': return FluentrUI.renderPhrasebook(p);
-      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), cloudEmail: AppState.cloudEmail }, p);
+      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission() }, p);
       default: return FluentrUI.renderHome(p, op, c);
     }
   }
@@ -626,25 +601,6 @@ const FluentrApp = (function () {
     switch (a) {
       case 'navigate': FluentrRouter.navigate(el.dataset.route); break;
       case 'pick-profile': enterProfile(el.dataset.id); break;
-      case 'auth-sign-in': case 'auth-sign-up': {
-        const email = (document.getElementById('auth-email-input') || {}).value || '';
-        const password = (document.getElementById('auth-password-input') || {}).value || '';
-        const errEl = document.getElementById('auth-error');
-        if (!email.trim() || !email.includes('@')) { if (errEl) errEl.textContent = 'Enter a valid email.'; break; }
-        if (!password || password.length < 6) { if (errEl) errEl.textContent = 'Password must be at least 6 characters.'; break; }
-        const call = a === 'auth-sign-up' ? FluentrSupabaseAuth.signUpWithPassword(email.trim(), password) : FluentrSupabaseAuth.signInWithPassword(email.trim(), password);
-        call.then((session) => { AppState.cloudEmail = session.user.email; boot(); })
-          .catch((err) => { if (errEl) errEl.textContent = err.message || 'Something went wrong. Try again.'; });
-        break;
-      }
-      case 'claim-profile': {
-        FluentrSupabaseAuth.claimProfile(el.dataset.id).then((ok) => {
-          if (ok) { FluentrData.setActiveProfileId(el.dataset.id); enterProfile(el.dataset.id); }
-          else showClaimGate();
-        });
-        break;
-      }
-      case 'sign-out': FluentrSupabaseAuth.signOut().then(() => { FluentrData.setActiveProfileId(''); AppState.cloudEmail = null; boot(); }); break;
       case 'pick-goal':
         AppState.profile.goal = el.dataset.goal;
         AppState.screen = 'onboard-placement-choice'; render(); break;
@@ -768,16 +724,7 @@ const FluentrApp = (function () {
       case 'export-couple': exportJSON(Promise.resolve(JSON.stringify(AppState.couple, null, 2)), 'fluentr-couple'); break;
       case 'import-data': document.getElementById('import-file-input').click(); break;
       case 'reset-profile': if (window.confirm('Reset ' + AppState.profile.name + '’s progress? This cannot be undone.')) { FluentrData.resetProfile(AppState.profile.id).then(() => enterProfile(AppState.profile.id)); } break;
-      case 'reset-all': {
-        const msg = FluentrSupabaseAuth.isEnabled() ? 'Reset your progress? This cannot be undone.' : 'Reset ALL Fluentr data for both profiles? This cannot be undone.';
-        if (window.confirm(msg)) {
-          FluentrData.resetAll().then(() => {
-            if (FluentrSupabaseAuth.isEnabled()) { enterProfile(AppState.profile.id); return; }
-            FluentrData.setActiveProfileId(''); showGate();
-          });
-        }
-        break;
-      }
+      case 'reset-all': if (window.confirm('Reset ALL Fluentr data for both profiles? This cannot be undone.')) { FluentrData.resetAll().then(() => { FluentrData.setActiveProfileId(''); showGate(); }); } break;
       case 'install-pwa': FluentrPWA.promptInstall(); break;
       case 'upload-photo': document.getElementById('photo-file-input').click(); break;
       case 'remove-photo': AppState.profile.photo = null; persistProfile(); render(); break;
