@@ -47,17 +47,44 @@ const SupabaseDataProvider = (function () {
       return fresh;
     },
 
+    // Plain last-write-wins — fine for saveProfile since each person is
+    // nearly always the only writer of their own row. updateProfile below
+    // uses the CAS-with-retry version instead, because its one real
+    // cross-device writer (a Duel's loser/winner update, which can target
+    // either partner's profile from whichever device finalized the duel)
+    // needs it. See updateCouple for why a shared row can't get away with this.
     async saveProfile(profile) {
-      const { error } = await sb().from('profiles').update({ data: profile, updated_at: new Date().toISOString() }).eq('id', profile.id);
+      const { data, error } = await sb().from('profiles').update({ data: profile, updated_at: new Date().toISOString() }).eq('id', profile.id).select('id');
       if (error) throw error;
+      if (!data || !data.length) throw new Error(`saveProfile: no row for id "${profile.id}" (not one of the pre-seeded profiles)`);
       return profile;
     },
 
+    // Optimistic concurrency: read the row's current updated_at, mutate,
+    // then write conditioned on that same updated_at still being current.
+    // If another writer beat us to it, the conditional UPDATE matches zero
+    // rows (not an error) — re-read the now-current row and retry the
+    // mutator against it, instead of blindly overwriting whatever they
+    // just wrote (which is what a plain read-then-write does, and why the
+    // Daily Couple Challenge could lose a partner's completion — see git
+    // history / supabase/schema.sql's note on this).
     async updateProfile(id, mutator) {
-      const p = await this.ensureProfile(id);
-      mutator(p);
-      await this.saveProfile(p);
-      return p;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const { data: row, error: readErr } = await sb().from('profiles').select('id, data, updated_at').eq('id', id).maybeSingle();
+        if (readErr) throw readErr;
+        // Rows are always pre-seeded (schema.sql) — a missing row would
+        // mean the id isn't one of the known profiles at all.
+        if (!row) throw new Error(`updateProfile: no row for id "${id}"`);
+        const p = rowToProfile(row);
+        mutator(p);
+        const { data: written, error } = await sb().from('profiles')
+          .update({ data: p, updated_at: new Date().toISOString() })
+          .eq('id', id).eq('updated_at', row.updated_at)
+          .select('id');
+        if (error) throw error;
+        if (written && written.length) return p;
+      }
+      throw new Error(`updateProfile: too many concurrent write conflicts for "${id}"`);
     },
 
     async getCouple() {
@@ -66,12 +93,26 @@ const SupabaseDataProvider = (function () {
       return rowToCouple(data) || flDefaultCouple();
     },
 
+    // Same optimistic-concurrency retry as updateProfile, and much more
+    // load-bearing here: the couple row is the one place both partners
+    // routinely write to from separate devices at close to the same
+    // moment (Daily Couple Challenge, league lead, duel history). A plain
+    // read-mutate-write silently drops whichever write lands second.
     async updateCouple(mutator) {
-      const c = await this.getCouple();
-      mutator(c);
-      const { error } = await sb().from('couple').update({ data: c, updated_at: new Date().toISOString() }).eq('id', 'main');
-      if (error) throw error;
-      return c;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const { data: row, error: readErr } = await sb().from('couple').select('id, data, updated_at').eq('id', 'main').maybeSingle();
+        if (readErr) throw readErr;
+        if (!row) throw new Error('updateCouple: couple row missing (should be pre-seeded)');
+        const c = rowToCouple(row);
+        mutator(c);
+        const { data: written, error } = await sb().from('couple')
+          .update({ data: c, updated_at: new Date().toISOString() })
+          .eq('id', 'main').eq('updated_at', row.updated_at)
+          .select('id');
+        if (error) throw error;
+        if (written && written.length) return c;
+      }
+      throw new Error('updateCouple: too many concurrent write conflicts');
     },
 
     // Device-local convenience only (which claimed profile this browser is

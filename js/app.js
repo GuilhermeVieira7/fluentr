@@ -33,7 +33,26 @@ const FluentrApp = (function () {
 
   /* ============ Persistence helpers ============ */
 
-  async function persistProfile() { if (AppState.profile) await FluentrData.saveProfile(AppState.profile); }
+  // Most call sites fire this without awaiting or catching it — under
+  // SupabaseDataProvider a network hiccup makes saveProfile throw, which
+  // used to become a silently-swallowed unhandled rejection: XP/hearts/
+  // streak changes would vanish on next reload with zero indication
+  // anything went wrong. This can't retry on its own (the failed write is
+  // already gone), but it at least tells the user once — rate-limited so a
+  // stretch of offline play doesn't spam a toast on every single answer.
+  let lastPersistFailureToastAt = 0;
+  async function persistProfile() {
+    if (!AppState.profile) return;
+    try {
+      await FluentrData.saveProfile(AppState.profile);
+    } catch (e) {
+      const now = Date.now();
+      if (now - lastPersistFailureToastAt > 30000) {
+        lastPersistFailureToastAt = now;
+        FluentrUI.showToast('Could not save your progress', 'Check your connection.', null);
+      }
+    }
+  }
 
   async function refreshBoth() {
     AppState.profile = await FluentrData.getProfile(AppState.profile.id);
@@ -70,9 +89,8 @@ const FluentrApp = (function () {
     await persistProfile();
     const otherId = id === 'guilherme' ? 'rayssa' : 'guilherme';
     AppState.otherProfile = await FluentrData.ensureProfile(otherId);
-    AppState.couple = await FluentrData.getCouple();
-    ensureDailyCoupleChallenge();
     await FluentrData.updateCouple((c) => {
+      ensureDailyCoupleChallenge(c);
       FluentrGamification.computeCoupleStreak(c, AppState.profile, AppState.otherProfile);
       FluentrGamification.finalizeWeekIfNeeded(c, AppState.profile, AppState.otherProfile);
     });
@@ -97,11 +115,16 @@ const FluentrApp = (function () {
     }
   }
 
-  function ensureDailyCoupleChallenge() {
+  // Mutates the couple doc in place — must run INSIDE an updateCouple()
+  // mutator (see enterProfile) so the rotation actually persists. It used
+  // to mutate a separate AppState.couple copy that a later getCouple()
+  // call would immediately discard, so the daily challenge never rotated
+  // past day one in practice.
+  function ensureDailyCoupleChallenge(c) {
     const today = flTodayISO();
-    if (AppState.couple.dailyChallenge.date !== today) {
+    if (c.dailyChallenge.date !== today) {
       const item = FluentrLessonEngine.dailyCoupleChallengeFor(today);
-      AppState.couple.dailyChallenge = { date: today, exerciseId: item.id, completions: {} };
+      c.dailyChallenge = { date: today, exerciseId: item.id, completions: {} };
     }
   }
 
@@ -320,7 +343,6 @@ const FluentrApp = (function () {
       }
       prog.completedCount += 1; prog.bestAccuracy = Math.max(prog.bestAccuracy, accuracy); prog.lastCompletedAt = new Date().toISOString();
       AppState.profile.pathProgress[lessonId] = prog;
-      FluentrGamification.addWeeklyXP(AppState.profile, s.xpEarned);
       FluentrGamification.checkBadges(AppState.profile, badgeCtx());
       checkLeagueLeadChange();
     } else if (s.mode === 'sos') {
@@ -329,7 +351,6 @@ const FluentrApp = (function () {
       FluentrGamification.awardXP(AppState.profile, FL_XP_RULES.SOS_COMPLETE, 'SOS warm-up complete');
       s.xpEarned += FL_XP_RULES.SOS_COMPLETE;
       AppState.profile.pillarActivity.sos += 1;
-      FluentrGamification.addWeeklyXP(AppState.profile, s.xpEarned);
       FluentrGamification.checkBadges(AppState.profile, badgeCtx());
     }
     persistProfile();
@@ -570,25 +591,39 @@ const FluentrApp = (function () {
     render();
   }
 
-  function finalizeDuel() {
+  async function finalizeDuel() {
     const d = AppState.duel;
     const [p1, p2] = d.order;
     const r1 = d.results[p1.id], r2 = d.results[p2.id];
+    // Computed once here and read back by renderDuelResult (via d.winnerId)
+    // instead of being recomputed independently in ui.js — the two copies
+    // of this tie-break used to disagree (<= here, < there), so an exact
+    // score+time tie could show a different winner on screen than the one
+    // XP/counters/history actually credited.
     const winnerId = r1.score !== r2.score ? (r1.score > r2.score ? p1.id : p2.id) : (r1.timeSec <= r2.timeSec ? p1.id : p2.id);
+    d.winnerId = winnerId;
     [p1, p2].forEach((p) => { p.counters.duelsPlayed += 1; });
     const winner = winnerId === p1.id ? p1 : p2;
     winner.counters.duelsWon += 1;
     FluentrGamification.awardXP(winner, FL_XP_RULES.DUEL_VICTORY, 'Duel victory');
-    FluentrData.saveProfile(p1); FluentrData.saveProfile(p2);
+    // Duels are pass-the-device, so both players are physically present —
+    // safe to toast either's unlock, unlike single-player badge checks.
+    FluentrGamification.checkBadges(p1, badgeCtx()).forEach((b) => FluentrUI.showToast(`${p1.name}: badge unlocked — ${b.name}`, b.description, 'badge'));
+    FluentrGamification.checkBadges(p2, badgeCtx()).forEach((b) => FluentrUI.showToast(`${p2.name}: badge unlocked — ${b.name}`, b.description, 'badge'));
+    try {
+      await Promise.all([FluentrData.saveProfile(p1), FluentrData.saveProfile(p2)]);
+    } catch (e) { FluentrUI.showToast('Could not save duel result', 'Check your connection.', null); }
     const record = {
       id: 'duel-' + Date.now(), date: flTodayISO(), topic: d.topic, winnerId,
       results: { [p1.id]: { score: r1.score, timeSec: r1.timeSec }, [p2.id]: { score: r2.score, timeSec: r2.timeSec } }
     };
-    FluentrData.updateCouple((c) => {
-      c.duelHistory = c.duelHistory || [];
-      c.duelHistory.unshift(record);
-      if (c.duelHistory.length > 30) c.duelHistory.length = 30;
-    }).then((c) => { AppState.couple = c; });
+    try {
+      AppState.couple = await FluentrData.updateCouple((c) => {
+        c.duelHistory = c.duelHistory || [];
+        c.duelHistory.unshift(record);
+        if (c.duelHistory.length > 30) c.duelHistory.length = 30;
+      });
+    } catch (e) { /* duel history is a nice-to-have log; XP/counters above already saved */ }
   }
 
   /* ============ Delegated events ============ */

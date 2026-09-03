@@ -106,7 +106,13 @@ const FluentrLessonEngine = (function () {
     const count = Math.max(6, Math.min(20, Math.ceil(gapXP / perItem)));
     const reviewHalf = Math.ceil(count / 2);
     const review = buildSmartReview(profile, reviewHalf);
-    const fresh = weightedSession(profile, count - review.length).filter((x) => !review.find((y) => y.uid === x.uid));
+    // Exclude review's ids from the pool up front instead of sampling then
+    // filtering afterward — the old filter-after-sample approach could
+    // shrink below `count` whenever the two independent random draws
+    // happened to overlap (increasingly likely as count approaches the
+    // total pool size), silently under-delivering the session.
+    const reviewUids = new Set(review.map((x) => x.uid));
+    const fresh = weightedSession(profile, count - review.length, reviewUids);
     return shuffle(review.concat(fresh)).slice(0, count);
   }
 
@@ -127,8 +133,8 @@ const FluentrLessonEngine = (function () {
     return 0.4 - (idx / Math.max(1, recent.length - 1)) * 0.3; // newest (high idx) ~0.1x, oldest-in-window (low idx) ~0.4x
   }
 
-  function weightedSession(profile, count) {
-    const items = allLessonItems();
+  function weightedSession(profile, count, excludeUids) {
+    const items = excludeUids ? allLessonItems().filter((it) => !excludeUids.has(it.uid)) : allLessonItems();
     const weighted = items.map((it) => {
       const stat = profile.exerciseStats[it.uid];
       let w = 1;
@@ -238,7 +244,7 @@ const FluentrLessonEngine = (function () {
   // ---- Weekly recap ----
   function buildWeeklyRecap(profile) {
     const wk = FluentrGamification.weekKey();
-    const weekEntries = (profile.history || []).filter((h) => flIsoWeekKey(new Date(h.date)) === wk);
+    const weekEntries = (profile.history || []).filter((h) => flIsoWeekKey(flParseLocalDate(h.date)) === wk);
     const xp = weekEntries.reduce((a, h) => a + h.xp, 0);
     const exercises = weekEntries.length;
     const stats = FluentrGamification.buildStats(profile);

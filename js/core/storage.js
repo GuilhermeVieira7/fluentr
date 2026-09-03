@@ -15,6 +15,19 @@ function flTodayISO() {
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 }
 
+// Parses a "YYYY-MM-DD" string (as produced by flTodayISO, always local
+// time) back into a local-midnight Date. `new Date("YYYY-MM-DD")` parses as
+// UTC midnight per spec — for a negative UTC offset (e.g. Brazil, UTC-3)
+// that lands on the *previous* local day, which silently shifted every
+// Monday history entry into the prior ISO week when fed through
+// flIsoWeekKey (which reads the Date back with local getters). Use this
+// instead of `new Date(dateStr)` anywhere a stored "YYYY-MM-DD" needs to
+// become a Date for local-calendar math.
+function flParseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function flIsoWeekKey(date) {
   date = date || new Date();
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));

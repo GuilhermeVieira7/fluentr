@@ -923,7 +923,10 @@ const FluentrUI = (function () {
 
   function renderDuelResult(duel, p1, p2) {
     const r1 = duel.results[p1.id], r2 = duel.results[p2.id];
-    const winnerId = r1.score !== r2.score ? (r1.score > r2.score ? p1.id : p2.id) : (r1.timeSec < r2.timeSec ? p1.id : p2.id);
+    // Read the winner finalizeDuel() already computed (app.js) rather than
+    // recomputing it here — two independent copies of this tie-break used
+    // to disagree on an exact score+time tie.
+    const winnerId = duel.winnerId;
     const winner = winnerId === p1.id ? p1 : p2;
     return `<div class="complete-card">
       <div class="complete-badge">${FluentrIcons.icon('trophy', 40)}</div>

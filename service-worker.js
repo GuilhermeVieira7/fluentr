@@ -4,13 +4,23 @@
    network-first pass for navigation requests (so content updates when
    online) and a cache/offline.html fallback when there's no network. */
 
-const CACHE_NAME = 'fluentr-v4-bugfixes';
+const CACHE_NAME = 'fluentr-v5-supabase';
+
+// Cached alongside everything else below despite being cross-origin — see
+// the fetch handler's explicit check for this exact URL. It's boot-critical
+// (js/core/supabaseAuth.js references window.supabase synchronously) but
+// same-origin-only caching would never touch a CDN script, so without this
+// the app could fail to boot offline in Supabase mode even with every local
+// file cached. Keep this in sync with the <script src> in index.html.
+const SUPABASE_CDN_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/dist/umd/supabase.js';
 
 const PRECACHE_URLS = [
   './', './index.html', './offline.html', './manifest.webmanifest',
   './css/tokens.css', './css/base.css', './css/components.css', './css/pages.css', './css/responsive.css',
   './js/router.js', './js/app.js', './js/ui.js', './js/lessonEngine.js',
-  './js/core/storage.js', './js/core/dataService.js', './js/core/gamification.js', './js/core/profiles.js',
+  './js/core/config.js', './js/core/storage.js', './js/core/dataService.js',
+  './js/core/supabaseAuth.js', './js/core/supabaseDataProvider.js', './js/core/dataServiceSelect.js',
+  './js/core/gamification.js', './js/core/profiles.js',
   './js/core/mascot.js', './js/core/feedback.js', './js/core/pwa.js',
   './data/curriculum.js', './data/badges.js', './data/traps.js', './data/say.js', './data/writing.js',
   './data/technical.js', './data/sos.js', './data/lessons.js', './data/coupleChallenges.js', './data/simulators.js', './data/placement.js',
@@ -26,7 +36,13 @@ const PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then((cache) => cache.addAll(PRECACHE_URLS)
+        // The CDN script is cached best-effort, separately from the atomic
+        // addAll above: cache.addAll is all-or-nothing, and a cross-origin
+        // fetch is far more likely to transiently fail (CORS hiccup, CDN
+        // blip) than any of this app's own files — one bad CDN fetch
+        // shouldn't be able to fail precaching of the entire local app shell.
+        .then(() => cache.add(SUPABASE_CDN_URL).catch(() => { /* served from network or the browser's HTTP cache if this never lands */ })))
       .then(() => self.skipWaiting())
   );
 });
@@ -58,8 +74,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin static assets: cache-first, refresh cache in the background.
-  if (new URL(req.url).origin === self.location.origin) {
+  // Same-origin static assets, plus the one cross-origin file this app
+  // depends on to boot (see SUPABASE_CDN_URL) — cache-first, refresh cache
+  // in the background. Every other cross-origin request (the actual
+  // Supabase API calls) deliberately falls through uncached below: those
+  // must always hit the network fresh.
+  if (new URL(req.url).origin === self.location.origin || req.url === SUPABASE_CDN_URL) {
     event.respondWith(
       caches.match(req).then((cached) => {
         const network = fetch(req).then((res) => {

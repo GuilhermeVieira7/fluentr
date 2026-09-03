@@ -20,18 +20,16 @@ const FL_XP_RULES = {
 
 const FluentrGamification = (function () {
 
-  function levelCurve() {
-    if (this._cache) return this._cache;
+  function buildLevelCurve() {
     const levels = [];
     let cumulative = 0;
     for (let n = 1; n <= 60; n++) {
       if (n > 1) cumulative += Math.round(180 + (n - 1) * 42 + Math.pow(n, 1.5) * 6);
       levels.push({ level: n, xp: cumulative });
     }
-    this._cache = levels;
     return levels;
   }
-  const _curve = levelCurve();
+  const _curve = buildLevelCurve();
 
   function levelInfo(totalXP) {
     let current = _curve[0], next = _curve[1];
@@ -49,6 +47,12 @@ const FluentrGamification = (function () {
     profile.xp += amount;
     profile.history.unshift({ ts: new Date().toISOString(), date: flTodayISO(), label, xp: amount });
     if (profile.history.length > 300) profile.history.length = 300;
+    // Every XP source funnels through here, so this is the one place that
+    // needs to touch weeklyXP — it used to be added ad-hoc by individual
+    // call sites (finishSession only), which meant Duel wins, Technical
+    // Scenario XP, simulator completions, and the Daily Couple Challenge
+    // bonus silently never counted toward the Couple League standings.
+    addWeeklyXP(profile, amount);
     return amount;
   }
 
