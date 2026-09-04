@@ -1311,10 +1311,21 @@ const FluentrUI = (function () {
         <div class="settings-row"><div class="settings-row-title">${FluentrIcons.icon('check', 15)} Installed</div></div>
       </div>`;
     if (installState === 'promptable') return `<div class="card" style="margin-bottom:14px;"><button class="btn btn-primary btn-block" data-action="install-pwa">Install Fluentr</button></div>`;
+    // iOS Safari has no install API at all (Apple's restriction, not a
+    // Fluentr limitation) — nothing here can be a real button, since the
+    // only install path is the person doing it themselves inside Safari's
+    // own UI. Spelled out as numbered steps instead of a paragraph so it
+    // doesn't read as a broken/unresponsive control.
     if (installState === 'ios-manual') return `<div class="card" style="margin-bottom:14px;">
-        <div class="settings-row-title" style="margin-bottom:8px;">Install Fluentr</div>
-        <div class="text-soft" style="font-size:12.5px;line-height:1.5;">
-          Tap ${FluentrIcons.icon('upload', 13)} <strong>Share</strong> at the bottom of Safari, then <strong>Add to Home Screen</strong>.
+        <div class="settings-row-title" style="margin-bottom:4px;">Install Fluentr</div>
+        <div class="text-faint" style="font-size:11.5px;margin-bottom:10px;">iPhone/iPad only lets you do this yourself in Safari — there's no button we can add for it.</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+          <span class="chip chip-brand" style="min-width:22px;justify-content:center;">1</span>
+          <span class="text-soft" style="font-size:13px;">Tap ${FluentrIcons.icon('upload', 14)} <strong>Share</strong> in Safari's toolbar</span>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <span class="chip chip-brand" style="min-width:22px;justify-content:center;">2</span>
+          <span class="text-soft" style="font-size:13px;">Scroll down and tap <strong>Add to Home Screen</strong></span>
         </div>
       </div>`;
     // The browser's own install prompt was shown and dismissed — it won't
