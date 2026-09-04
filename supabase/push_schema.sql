@@ -31,18 +31,25 @@ create extension if not exists pg_net with schema extensions;
 -- so 19:00 UTC is 16:00 local; pick whatever hour actually makes sense
 -- for a "don't lose your streak" nudge and adjust).
 --
--- send-daily-reminders is deployed with --no-verify-jwt, specifically so
--- this call needs no key at all — it accepts no meaningful input and only
--- ever reads its own database, so an unauthenticated trigger is an
--- acceptable, much simpler tradeoff than threading a service-role key
--- through a cron job definition.
+-- send-daily-reminders is deployed with --no-verify-jwt so it doesn't
+-- need a real user session — but Supabase's edge gateway still rejects a
+-- request with literally no apikey/Authorization at all (confirmed: a
+-- bare net.http_post with only Content-Type gets "JWT issued at future"
+-- back, meaning this cron job would have silently never actually run).
+-- The anon key below is the same public key already shipped in
+-- js/core/config.js — safe to embed here for the same reason it's safe
+-- there (RLS is the security boundary, not secrecy of this key).
 select cron.schedule(
   'fluentr-daily-reminders',
   '0 19 * * *',
   $$
   select net.http_post(
     url := 'https://hangejzdsnkyinpumihr.supabase.co/functions/v1/send-daily-reminders',
-    headers := '{"Content-Type": "application/json"}'::jsonb,
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'apikey', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhhbmdlanpkc25reWlucHVtaWhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzEyMzYsImV4cCI6MjEwMzk0NzIzNn0.s94emn3ZXWF9T2h9vzMxluFztyPJiqVI6MhxIpCuREo',
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhhbmdlanpkc25reWlucHVtaWhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzEyMzYsImV4cCI6MjEwMzk0NzIzNn0.s94emn3ZXWF9T2h9vzMxluFztyPJiqVI6MhxIpCuREo'
+    ),
     body := '{}'::jsonb
   );
   $$

@@ -1230,6 +1230,26 @@ const FluentrUI = (function () {
     return ''; // unsupported browser — no install path to offer
   }
 
+  // `backups` is undefined when cloud sync is off (no server to run the
+  // daily snapshot job) — the card just doesn't render, same pattern as
+  // renderInstallCard's 'unsupported' case.
+  function renderCloudBackupsCard(backups) {
+    if (!backups) return '';
+    if (!backups.length) return `<div class="card" style="margin-bottom:14px;">
+        <div class="settings-row-title" style="margin-bottom:4px;">Cloud backups</div>
+        <div class="text-faint" style="font-size:12px;">First automatic backup runs tonight — nothing to restore yet.</div>
+      </div>`;
+    const rows = backups.map((b) => `<div class="settings-row">
+        <div class="settings-row-title" style="font-size:13px;">${esc(timeAgo(b.created_at))}</div>
+        <button class="btn btn-subtle btn-sm" data-action="restore-backup" data-id="${esc(b.id)}">Restore</button>
+      </div>`).join('');
+    return `<div class="card" style="margin-bottom:14px;">
+      <div class="settings-row-title" style="margin-bottom:8px;">Cloud backups</div>
+      <div class="text-faint" style="font-size:11.5px;margin-bottom:8px;">Automatic, once a day — last ${backups.length} kept.</div>
+      ${rows}
+    </div>`;
+  }
+
   function renderSettings(state, profile) {
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
       <h1 style="margin-bottom:18px;">Settings</h1>
@@ -1253,6 +1273,7 @@ const FluentrUI = (function () {
         </div>
         <input type="file" id="import-file-input" accept="application/json" class="visually-hidden">
       </div>
+      ${renderCloudBackupsCard(state.backups)}
       ${renderInstallCard(state.installState)}
       <div class="card" style="border-color:var(--danger-soft);">
         <div class="settings-row-title" style="margin-bottom:10px;">Danger zone</div>

@@ -155,5 +155,11 @@ const LocalDataProvider = {
     // one device and one IndexedDB there is no "other writer" to hear from.
     subscribeToChanges() {
       return () => { };
-    }
+    },
+
+    // Automatic backups need somewhere server-side to run the daily
+    // snapshot job — no cloud, no backups. exportAll() is still there for
+    // a manual local backup.
+    async listBackups() { return []; },
+    async restoreBackup() { throw new Error('Automatic backups need cloud sync configured.'); }
   };

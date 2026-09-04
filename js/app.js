@@ -18,7 +18,8 @@ const FluentrApp = (function () {
     sos: { view: 'hub', packId: null, catId: null, warmup: null },
     onboardingId: null,
     aiChat: { scenario: null, history: [], busy: false, lastCorrection: null, listening: false },
-    aiWriting: { text: '', result: null, busy: false }
+    aiWriting: { text: '', result: null, busy: false },
+    settingsBackups: null
   };
 
   function currentHearts() { return AppState.profile ? AppState.profile.hearts.count : 5; }
@@ -201,7 +202,19 @@ const FluentrApp = (function () {
     AppState.route = name;
     if (name === 'say') { AppState.say = { query: '', results: null }; }
     if (name === 'sos') AppState.sos = { view: 'hub' };
+    if (name === 'settings') loadSettingsBackups();
     render();
+  }
+
+  // Fire-and-forget: renders without the Cloud Backups card first (or
+  // whatever it last showed), then re-renders once the list arrives —
+  // avoids blocking the whole Settings screen on a network round trip.
+  function loadSettingsBackups() {
+    if (!FluentrData.listBackups) return;
+    FluentrData.listBackups().then((backups) => {
+      AppState.settingsBackups = backups;
+      if (AppState.route === 'settings') render();
+    }).catch(() => { });
   }
 
   function applyTheme(theme) {
@@ -262,7 +275,7 @@ const FluentrApp = (function () {
       case 'profile': return FluentrUI.renderProfile(p, op);
       case 'progress': return FluentrUI.renderProgress(p);
       case 'phrasebook': return FluentrUI.renderPhrasebook(p);
-      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled(), installState: FluentrPWA.installState() }, p);
+      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled(), installState: FluentrPWA.installState(), backups: AppState.settingsBackups }, p);
       default: return FluentrUI.renderHome(p, op, c);
     }
   }
@@ -609,7 +622,7 @@ const FluentrApp = (function () {
       if (res.hadError) chat.lastCorrection = { correction: res.correction, pt: res.correctionPt };
       awardAIActivity('aiChat', 3, 'AI conversation practice');
     } catch (e) {
-      chat.history.push({ role: 'model', text: '⚠️ ' + (e.message || 'Something went wrong. Try again.') });
+      chat.history.push({ role: 'model', text: '⚠️ ' + FluentrAI.friendlyError(e) });
     } finally {
       chat.busy = false;
       render();
@@ -650,7 +663,7 @@ const FluentrApp = (function () {
       const items = res.exercises.map((ex) => ({ uid: ex.id, type: ex.type, unit: 'ai-generated', data: ex }));
       startSession(items, 'ai-generated', { topic });
     } catch (e) {
-      FluentrUI.showToast('Could not generate practice', e.message || 'Try again.', null);
+      FluentrUI.showToast('Could not generate practice', FluentrAI.friendlyError(e), null);
     }
   }
 
@@ -663,7 +676,7 @@ const FluentrApp = (function () {
       w.result = await FluentrAI.reviewWriting(AppState.profile.id, w.text);
       awardAIActivity('aiWriting', 5, 'AI writing review');
     } catch (e) {
-      w.result = { issues: [], overallPt: '⚠️ ' + (e.message || 'Something went wrong. Try again.') };
+      w.result = { issues: [], overallPt: '⚠️ ' + FluentrAI.friendlyError(e) };
     } finally {
       w.busy = false;
       render();
@@ -985,6 +998,14 @@ const FluentrApp = (function () {
       case 'import-data': document.getElementById('import-file-input').click(); break;
       case 'reset-profile': if (window.confirm('Reset ' + AppState.profile.name + '’s progress? This cannot be undone.')) { FluentrData.resetProfile(AppState.profile.id).then(() => enterProfile(AppState.profile.id)); } break;
       case 'reset-all': if (window.confirm('Reset ALL Fluentr data for both profiles? This cannot be undone.')) { FluentrData.resetAll().then(() => { FluentrData.setActiveProfileId(''); showGate(); }); } break;
+      case 'restore-backup': {
+        if (!window.confirm('Restore this backup? Your current progress will be overwritten with this snapshot.')) break;
+        FluentrData.restoreBackup(el.dataset.id).then(() => {
+          FluentrUI.showToast('Backup restored', null);
+          location.reload();
+        }).catch((err) => FluentrUI.showToast('Could not restore backup', FluentrAI.friendlyError(err), null));
+        break;
+      }
       case 'install-pwa': FluentrPWA.promptInstall(); break;
       case 'upload-photo': document.getElementById('photo-file-input').click(); break;
       case 'remove-photo': AppState.profile.photo = null; persistProfile(); render(); break;

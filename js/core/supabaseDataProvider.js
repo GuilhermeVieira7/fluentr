@@ -150,6 +150,26 @@ const SupabaseDataProvider = (function () {
       return true;
     },
 
+    // Automatic daily snapshots (supabase/functions/backup-daily) — a
+    // safety net alongside the manual export/import above, in case
+    // something goes wrong between backups nobody remembered to take.
+    async listBackups() {
+      const { data, error } = await sb().from('backups').select('id, created_at').order('created_at', { ascending: false }).limit(5);
+      if (error) throw error;
+      return data;
+    },
+
+    async restoreBackup(id) {
+      const { data, error } = await sb().from('backups').select('data').eq('id', id).maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Backup not found');
+      const snapshot = data.data;
+      const profiles = (snapshot.profiles || []).map(rowToProfile);
+      for (const p of profiles) await this.saveProfile(p);
+      if (snapshot.couple) await this.updateCouple((c) => Object.assign(c, snapshot.couple));
+      return true;
+    },
+
     async resetProfile(id) {
       const known = FL_KNOWN_PROFILES.find((k) => k.id === id);
       const fresh = flDefaultProfile(id, known ? known.name : id, known ? known.color : '#5b3df5');
