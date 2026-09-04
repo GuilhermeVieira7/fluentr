@@ -5,6 +5,13 @@
 const FluentrPWA = (function () {
   let deferredPrompt = null;
   let onInstallableChange = null;
+  // Once the native prompt has been shown and dismissed, Chrome typically
+  // won't fire beforeinstallprompt again for a good while — without this,
+  // installState() would silently fall back to 'unsupported' (nothing
+  // rendered) right after a dismiss, which reads as "the button broke"
+  // rather than "you said not now." Fall back to manual instructions
+  // instead of just disappearing.
+  let promptDismissedOnce = false;
 
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
@@ -20,6 +27,7 @@ const FluentrPWA = (function () {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
+      promptDismissedOnce = false;
       if (onInstallableChange) onInstallableChange(true);
     });
     window.addEventListener('appinstalled', () => {
@@ -33,6 +41,7 @@ const FluentrPWA = (function () {
     deferredPrompt.prompt();
     const choice = await deferredPrompt.userChoice;
     deferredPrompt = null;
+    if (choice.outcome === 'dismissed') promptDismissedOnce = true;
     if (onInstallableChange) onInstallableChange(false);
     return choice.outcome; // 'accepted' | 'dismissed'
   }
@@ -53,11 +62,12 @@ const FluentrPWA = (function () {
 
   // One state to drive the Settings "Install" row instead of scattering
   // these checks across ui.js/app.js: 'installed' | 'promptable' |
-  // 'ios-manual' | 'unsupported'.
+  // 'ios-manual' | 'manual-fallback' | 'unsupported'.
   function installState() {
     if (isStandalone()) return 'installed';
     if (deferredPrompt) return 'promptable';
     if (isIOS()) return 'ios-manual';
+    if (promptDismissedOnce) return 'manual-fallback';
     return 'unsupported';
   }
 

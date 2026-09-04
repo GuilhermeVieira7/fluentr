@@ -829,7 +829,17 @@ const FluentrUI = (function () {
 
   /* ============ League / Duels ============ */
 
-  function renderLeague(profile, otherProfile, couple) {
+  function syncedAgoLabel(ts) {
+    if (!ts) return null;
+    const sec = Math.round((Date.now() - ts) / 1000);
+    if (sec < 10) return 'just now';
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    return `${Math.round(min / 60)}h ago`;
+  }
+
+  function renderLeague(profile, otherProfile, couple, lastSyncedAt) {
     const stats = FluentrGamification.buildStats(profile);
     const otherStats = FluentrGamification.buildStats(otherProfile);
     const champs = couple.weeklyChampions || [];
@@ -846,7 +856,11 @@ const FluentrUI = (function () {
     else if (couple.streak.current >= 3) { fluState = 'love'; fluMsg = `${couple.streak.current} days learning together in a row — that's the real win. 💚`; }
     else { fluState = 'competitive'; fluMsg = "May the best XP win. Good luck to both of you! ⚡"; }
 
-    return `<h1 style="margin-bottom:16px;">Couple League</h1>
+    const syncedLabel = syncedAgoLabel(lastSyncedAt);
+    return `<div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h1 style="margin-bottom:0;">Couple League</h1>
+        ${syncedLabel ? `<span class="sync-indicator" title="Last synced with the cloud"><span class="sync-dot"></span>Synced ${syncedLabel}</span>` : ''}
+      </div>
       ${FluentrMascot.bubble(fluState, esc(fluMsg), 48)}
       ${streakAtRisk ? `<button class="btn btn-couple btn-block" style="margin-bottom:16px;" data-action="open-couple-challenge">Save Our Streak</button>` : ''}
       <div class="league-card">
@@ -1156,6 +1170,7 @@ const FluentrUI = (function () {
         <div class="flex gap-8" style="justify-content:center;margin-top:12px;">
           <span class="chip chip-xp">Lvl ${stats.level}</span><span class="chip chip-streak">🔥 ${stats.currentStreak}</span><span class="chip">${stats.totalXP} XP</span>${(profile.streak.freezesAvailable || 0) > 0 ? `<span class="chip" title="Covers one missed day this week without breaking your streak">🧊 Freeze ready</span>` : ''}
         </div>
+        ${stats.currentStreak > 0 ? `<button class="btn btn-couple btn-sm" style="margin-top:14px;" data-action="share-streak-card">${FluentrIcons.icon('upload', 14)} Share streak card</button>` : ''}
         <div style="max-width:260px;margin:14px auto 0;">
           <div class="flex" style="justify-content:space-between;font-size:11px;color:var(--ink-faint);margin-bottom:4px;">
             <span>Level ${stats.level}</span><span>${stats.xpForNext ? `${stats.xpForNext} XP to Level ${stats.level + 1}` : 'Max level'}</span>
@@ -1300,6 +1315,15 @@ const FluentrUI = (function () {
         <div class="settings-row-title" style="margin-bottom:8px;">Install Fluentr</div>
         <div class="text-soft" style="font-size:12.5px;line-height:1.5;">
           Tap ${FluentrIcons.icon('upload', 13)} <strong>Share</strong> at the bottom of Safari, then <strong>Add to Home Screen</strong>.
+        </div>
+      </div>`;
+    // The browser's own install prompt was shown and dismissed — it won't
+    // re-offer itself for a while, so fall back to pointing at the
+    // browser's manual install path instead of the card just vanishing.
+    if (installState === 'manual-fallback') return `<div class="card" style="margin-bottom:14px;">
+        <div class="settings-row-title" style="margin-bottom:8px;">Install Fluentr</div>
+        <div class="text-soft" style="font-size:12.5px;line-height:1.5;">
+          You can still install it from your browser's menu — look for <strong>Install app</strong> or <strong>Add to Home screen</strong> (⋮ menu on Chrome/Edge, or the address bar's install icon).
         </div>
       </div>`;
     return ''; // unsupported browser — no install path to offer

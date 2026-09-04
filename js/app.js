@@ -20,7 +20,8 @@ const FluentrApp = (function () {
     aiChat: { scenario: null, history: [], busy: false, lastCorrection: null, listening: false },
     aiWriting: { text: '', result: null, busy: false },
     aiRemaining: null,
-    settingsBackups: null
+    settingsBackups: null,
+    lastSyncedAt: null
   };
 
   function currentHearts() { return AppState.profile ? AppState.profile.hearts.count : 5; }
@@ -109,6 +110,7 @@ const FluentrApp = (function () {
       FluentrGamification.finalizeWeekIfNeeded(c, AppState.profile, AppState.otherProfile);
     });
     AppState.couple = await FluentrData.getCouple();
+    AppState.lastSyncedAt = Date.now();
 
     if (!AppState.profile.onboarded) {
       AppState.screen = 'onboard-goal';
@@ -165,6 +167,11 @@ const FluentrApp = (function () {
     FluentrRouter.start(() => {});
     FluentrRouter.render();
     startLiveSync();
+    // Keeps the "Synced Xs/m ago" label on the League screen ticking forward
+    // even when nothing new has actually synced — a render() only happens
+    // on state changes otherwise, so it'd freeze at whatever it said when
+    // you opened the tab.
+    setInterval(() => { if (AppState.screen === 'app' && AppState.route === 'league') render(); }, 30000);
     FluentrPresence.start(AppState.profile.id, () => {
       if (AppState.screen === 'app' && AppState.route === 'league') render();
     });
@@ -200,6 +207,7 @@ const FluentrApp = (function () {
       AppState.profile = mine;
       AppState.otherProfile = theirs;
       AppState.couple = couple;
+      AppState.lastSyncedAt = Date.now();
       const after = FluentrGamification.buildStats(AppState.otherProfile).weeklyXP;
       if (after > before) {
         FluentrUI.showToast(`${AppState.otherProfile.name} just earned ${after - before} XP`, 'Live from their device.', 'competitive');
@@ -313,7 +321,7 @@ const FluentrApp = (function () {
       case 'technical': return AppState.technical.openId ? FluentrUI.renderTechnicalDetail(window.WL_DATA.technical.find((t) => t.id === AppState.technical.openId), AppState.technical.audience) : FluentrUI.renderTechnical(p);
       case 'ai-chat': return AppState.aiChat.scenario ? FluentrUI.renderAIChat(AppState.aiChat, AppState.aiRemaining) : FluentrUI.renderAIChatSetup(AppState.aiRemaining);
       case 'ai-writing': return FluentrUI.renderAIWriting(AppState.aiWriting, AppState.aiRemaining);
-      case 'league': return FluentrUI.renderLeague(p, op, c);
+      case 'league': return FluentrUI.renderLeague(p, op, c, AppState.lastSyncedAt);
       case 'comeback': return FluentrUI.renderComeback(FluentrGamification.buildStats(p), FluentrGamification.buildStats(op), op);
       case 'duel-setup': return FluentrUI.renderDuelSetup();
       case 'badges': return FluentrUI.renderBadges(p);
@@ -766,6 +774,7 @@ const FluentrApp = (function () {
     };
     try {
       AppState.couple = await FluentrData.updateCouple((c) => { c.pendingDuel = duel; });
+      AppState.lastSyncedAt = Date.now();
     } catch (e) {
       FluentrUI.showToast('Could not start the duel', 'Check your connection.', null);
       return;
@@ -840,6 +849,7 @@ const FluentrApp = (function () {
         if (c.duelHistory.length > 30) c.duelHistory.length = 30;
         c.pendingDuel = null;
       });
+      AppState.lastSyncedAt = Date.now();
     } catch (e) {
       FluentrUI.showToast('Could not submit your round', 'Check your connection.', null);
       return;
@@ -1010,7 +1020,7 @@ const FluentrApp = (function () {
       case 'cancel-pending-duel':
         if (window.confirm('Cancel this duel? Any round already played is discarded.')) {
           FluentrData.updateCouple((c) => { c.pendingDuel = null; })
-            .then((c) => { AppState.couple = c; FluentrRouter.navigate('league'); render(); })
+            .then((c) => { AppState.couple = c; AppState.lastSyncedAt = Date.now(); FluentrRouter.navigate('league'); render(); })
             .catch(() => FluentrUI.showToast('Could not cancel the duel', 'Check your connection.', null));
         }
         break;
@@ -1077,7 +1087,20 @@ const FluentrApp = (function () {
         }).catch((err) => FluentrUI.showToast('Could not restore backup', FluentrAI.friendlyError(err), null));
         break;
       }
-      case 'install-pwa': FluentrPWA.promptInstall(); break;
+      case 'share-streak-card':
+        FluentrShareCard.shareStreakCard(AppState.profile, AppState.couple)
+          .then((outcome) => {
+            if (outcome === 'downloaded') FluentrUI.showToast('Card saved', 'Share it from your downloads.', null);
+          })
+          .catch(() => FluentrUI.showToast('Could not create the card', 'Try again in a moment.', null));
+        break;
+      case 'install-pwa':
+        FluentrPWA.promptInstall().then((outcome) => {
+          if (outcome === 'accepted') FluentrUI.showToast('Installing…', 'Look for Fluentr on your home screen in a moment.', null);
+          else if (outcome === 'dismissed') FluentrUI.showToast('No problem', "You can install it later from your browser's menu.", null);
+          if (AppState.route === 'settings') render();
+        }).catch(() => FluentrUI.showToast('Could not open the install prompt', "Try your browser's menu instead.", null));
+        break;
       case 'upload-photo': document.getElementById('photo-file-input').click(); break;
       case 'remove-photo': AppState.profile.photo = null; persistProfile(); render(); break;
       default: break;
@@ -1204,6 +1227,7 @@ const FluentrApp = (function () {
       }
     });
     AppState.couple = await FluentrData.getCouple();
+    AppState.lastSyncedAt = Date.now();
     persistProfile();
     shellEl.innerHTML = wrapApp(FluentrUI.renderCoupleChallenge(ci.item, { answered: true, selected: idx }));
   }

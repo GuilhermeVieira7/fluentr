@@ -475,6 +475,11 @@ body {
 .option-btn.correct { box-shadow: var(--glow-success); }
 .option-btn.incorrect { box-shadow: 0 0 0 1px rgba(255,84,112,0.4), 0 0 18px rgba(255,84,112,0.18); }
 
+/* ---- Sync indicator ---- */
+.sync-indicator { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-faint); font-weight: 600; }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); animation: sync-pulse 2s ease-in-out infinite; }
+@keyframes sync-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
 /* ---- Weekly XP chart ---- */
 .xp-chart-row { display: flex; align-items: flex-end; justify-content: space-between; }
 .xp-chart-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
