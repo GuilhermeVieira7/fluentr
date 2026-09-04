@@ -16,7 +16,9 @@ const FluentrApp = (function () {
     technical: { openId: null, audience: null },
     traps: { filter: '' },
     sos: { view: 'hub', packId: null, catId: null, warmup: null },
-    onboardingId: null
+    onboardingId: null,
+    aiChat: { scenario: null, history: [], busy: false, lastCorrection: null, listening: false },
+    aiWriting: { text: '', result: null, busy: false }
   };
 
   function currentHearts() { return AppState.profile ? AppState.profile.hearts.count : 5; }
@@ -146,6 +148,8 @@ const FluentrApp = (function () {
     FluentrRouter.register('technical', () => setRoute('technical'));
     FluentrRouter.register('duel-setup', () => setRoute('duel-setup'));
     FluentrRouter.register('comeback', () => setRoute('comeback'));
+    FluentrRouter.register('ai-chat', () => setRoute('ai-chat'));
+    FluentrRouter.register('ai-writing', () => setRoute('ai-writing'));
     FluentrRouter.start(() => {});
     FluentrRouter.render();
     startLiveSync();
@@ -226,6 +230,8 @@ const FluentrApp = (function () {
       case 'say': return AppState.say.openId ? FluentrUI.renderSayDetail(window.WL_DATA.say.find((s) => s.id === AppState.say.openId)) : FluentrUI.renderSay(p, AppState.say.query, AppState.say.results);
       case 'writing': return AppState.writing.openId ? FluentrUI.renderWritingDetail(window.WL_DATA.writing.find((w) => w.id === AppState.writing.openId), AppState.writing.tone) : FluentrUI.renderWriting(p);
       case 'technical': return AppState.technical.openId ? FluentrUI.renderTechnicalDetail(window.WL_DATA.technical.find((t) => t.id === AppState.technical.openId), AppState.technical.audience) : FluentrUI.renderTechnical(p);
+      case 'ai-chat': return AppState.aiChat.scenario ? FluentrUI.renderAIChat(AppState.aiChat) : FluentrUI.renderAIChatSetup();
+      case 'ai-writing': return FluentrUI.renderAIWriting(AppState.aiWriting);
       case 'league': return FluentrUI.renderLeague(p, op, c);
       case 'comeback': return FluentrUI.renderComeback(FluentrGamification.buildStats(p), FluentrGamification.buildStats(op), op);
       case 'duel-setup': return FluentrUI.renderDuelSetup();
@@ -233,7 +239,7 @@ const FluentrApp = (function () {
       case 'profile': return FluentrUI.renderProfile(p, op);
       case 'progress': return FluentrUI.renderProgress(p);
       case 'phrasebook': return FluentrUI.renderPhrasebook(p);
-      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission() }, p);
+      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled() }, p);
       default: return FluentrUI.renderHome(p, op, c);
     }
   }
@@ -542,6 +548,106 @@ const FluentrApp = (function () {
     AppState.profile.vocabulary[term] = { meaning, example, seen: existing.seen + 1, correct: existing.correct + 1, lastSeen: new Date().toISOString() };
   }
 
+  /* ============ AI Conversation Practice + Writing Coach (V3) ============ */
+  // Both talk to Gemini through supabase/functions/ (see js/core/aiClient.js)
+  // — the app never holds an AI API key itself. pillarActivity gains two
+  // keys here (aiChat/aiWriting) via the same `|| 0` pattern markPillarActivity
+  // already uses elsewhere, so old profiles need no migration.
+
+  function awardAIActivity(pillarKey, xpAmount, label) {
+    AppState.profile.pillarActivity[pillarKey] = (AppState.profile.pillarActivity[pillarKey] || 0) + 1;
+    const prevLevel = FluentrGamification.levelInfo(AppState.profile.xp).level;
+    FluentrGamification.awardXP(AppState.profile, xpAmount, label);
+    settleActivity(prevLevel);
+  }
+
+  function startAIChat(scenario) {
+    AppState.aiChat = { scenario, history: [], busy: false, lastCorrection: null, listening: false };
+    render();
+  }
+
+  function exitAIChat() {
+    AppState.aiChat = { scenario: null, history: [], busy: false, lastCorrection: null, listening: false };
+    render();
+  }
+
+  async function sendAIChatMessage(rawText) {
+    const chat = AppState.aiChat;
+    const text = (rawText || '').trim();
+    if (!text || chat.busy) return;
+    chat.history.push({ role: 'user', text });
+    chat.busy = true;
+    chat.lastCorrection = null;
+    render();
+    try {
+      const priorHistory = chat.history.slice(0, -1);
+      const res = await FluentrAI.chat(AppState.profile.id, chat.scenario, AppState.profile.cefrLevel, priorHistory, text);
+      chat.history.push({ role: 'model', text: res.reply });
+      if (res.hadError) chat.lastCorrection = { correction: res.correction, pt: res.correctionPt };
+      awardAIActivity('aiChat', 3, 'AI conversation practice');
+    } catch (e) {
+      chat.history.push({ role: 'model', text: '⚠️ ' + (e.message || 'Something went wrong. Try again.') });
+      render();
+    } finally {
+      chat.busy = false;
+      render();
+    }
+  }
+
+  // Web Speech API (Chrome/Edge) — purely browser-side transcription, no
+  // server involved. Unsupported browsers (notably Safari/iOS) just don't
+  // get a mic button; typing still works everywhere.
+  let aiRecognition = null;
+  function toggleVoiceInput() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { FluentrUI.showToast('Voice input not supported', 'Try Chrome or Edge on this device.', null); return; }
+    const chat = AppState.aiChat;
+    if (chat.listening) { if (aiRecognition) aiRecognition.stop(); return; }
+    aiRecognition = new SR();
+    aiRecognition.lang = 'en-US';
+    aiRecognition.interimResults = false;
+    aiRecognition.onresult = (e) => { sendAIChatMessage(e.results[0][0].transcript); };
+    aiRecognition.onend = () => { AppState.aiChat.listening = false; render(); };
+    aiRecognition.onerror = () => { AppState.aiChat.listening = false; render(); };
+    chat.listening = true;
+    render();
+    aiRecognition.start();
+  }
+
+  // Infinite personalized content: generates (or pulls from the shared
+  // cache — see ai-generate-exercises) a short session targeting whatever
+  // unit the profile is currently working through, so it stays relevant
+  // without needing a topic picker.
+  async function startAIGeneratedSession() {
+    if (!FluentrAI.isEnabled()) { FluentrUI.showToast('AI practice needs cloud sync configured', null, null); return; }
+    const next = FluentrLessonEngine.findNextLesson(AppState.profile);
+    const topic = next ? next.unitName : 'General workplace English';
+    FluentrUI.showToast('Generating practice…', topic, null);
+    try {
+      const res = await FluentrAI.generateExercises(AppState.profile.id, topic, AppState.profile.cefrLevel, 6);
+      const items = res.exercises.map((ex) => ({ uid: ex.id, type: ex.type, unit: 'ai-generated', data: ex }));
+      startSession(items, 'ai-generated', { topic });
+    } catch (e) {
+      FluentrUI.showToast('Could not generate practice', e.message || 'Try again.', null);
+    }
+  }
+
+  async function reviewWritingText() {
+    const w = AppState.aiWriting;
+    if (!w.text.trim() || w.busy) return;
+    w.busy = true; w.result = null;
+    render();
+    try {
+      w.result = await FluentrAI.reviewWriting(AppState.profile.id, w.text);
+      awardAIActivity('aiWriting', 5, 'AI writing review');
+    } catch (e) {
+      w.result = { issues: [], overallPt: '⚠️ ' + (e.message || 'Something went wrong. Try again.') };
+    } finally {
+      w.busy = false;
+      render();
+    }
+  }
+
   /* ============ Duel ============ */
 
   const DUEL_TOPIC_POOLS = {
@@ -788,6 +894,21 @@ const FluentrApp = (function () {
       case 'answer-couple': answerCouple(parseInt(el.dataset.index, 10)); break;
 
       case 'pick-duel-topic': pickDuelTopic(el.dataset.topic); break;
+      case 'pick-ai-scenario': startAIChat(el.dataset.scenario); break;
+      case 'start-ai-practice': startAIGeneratedSession(); break;
+      case 'exit-ai-chat': exitAIChat(); break;
+      case 'send-ai-message': {
+        const input = document.getElementById('ai-chat-input');
+        if (input) { sendAIChatMessage(input.value); input.value = ''; }
+        break;
+      }
+      case 'ai-mic-toggle': toggleVoiceInput(); break;
+      case 'review-writing': {
+        const ta = document.getElementById('ai-writing-input');
+        if (ta) { AppState.aiWriting.text = ta.value; reviewWritingText(); }
+        break;
+      }
+      case 'clear-writing-review': AppState.aiWriting = { text: '', result: null, busy: false }; render(); break;
       case 'play-pending-duel': startDuelRound(AppState.couple.pendingDuel); break;
       case 'cancel-pending-duel':
         if (window.confirm('Cancel this duel? Any round already played is discarded.')) {
@@ -807,12 +928,29 @@ const FluentrApp = (function () {
       case 'toggle-streak-notify': {
         const next = !AppState.profile.settings.notifyStreak;
         if (next) {
-          FluentrPWA.requestNotificationPermission().then((perm) => {
-            AppState.profile.settings.notifyStreak = perm === 'granted';
-            if (perm !== 'granted') FluentrUI.showToast('Notifications blocked', 'Enable them in your browser settings to turn this on.');
-            persistProfile(); render();
+          // Real push (reaches the device even with the app fully closed)
+          // where supported; falls back to the old in-app-only reminder
+          // (core/pwa.js's maybeNotify) otherwise — still better than nothing.
+          const subscribePromise = FluentrPush.isSupported() && FluentrAI.isEnabled()
+            ? FluentrPush.subscribe(AppState.profile.id).catch(() => false)
+            : Promise.resolve(false);
+          subscribePromise.then((pushed) => {
+            if (pushed) {
+              AppState.profile.settings.notifyStreak = true;
+              persistProfile(); render();
+              return;
+            }
+            FluentrPWA.requestNotificationPermission().then((perm) => {
+              AppState.profile.settings.notifyStreak = perm === 'granted';
+              if (perm !== 'granted') FluentrUI.showToast('Notifications blocked', 'Enable them in your browser settings to turn this on.');
+              persistProfile(); render();
+            });
           });
-        } else { AppState.profile.settings.notifyStreak = false; persistProfile(); render(); }
+        } else {
+          AppState.profile.settings.notifyStreak = false;
+          FluentrPush.unsubscribe().catch(() => { });
+          persistProfile(); render();
+        }
         break;
       }
       case 'save-daily-goal': {
@@ -845,6 +983,14 @@ const FluentrApp = (function () {
       handlePhotoFile(e.target.files[0]);
     }
     if (e.target && e.target.id === 'photo-posy-input') { persistProfile(); }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.id === 'ai-chat-input') {
+      e.preventDefault();
+      sendAIChatMessage(e.target.value);
+      e.target.value = '';
+    }
   });
 
   document.addEventListener('input', (e) => {

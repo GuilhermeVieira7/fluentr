@@ -4,7 +4,7 @@
    network-first pass for navigation requests (so content updates when
    online) and a cache/offline.html fallback when there's no network. */
 
-const CACHE_NAME = 'fluentr-v5-supabase';
+const CACHE_NAME = 'fluentr-v6-ai-push';
 
 // Cached alongside everything else below despite being cross-origin — see
 // the fetch handler's explicit check for this exact URL. It's boot-critical
@@ -21,7 +21,7 @@ const PRECACHE_URLS = [
   './js/core/config.js', './js/core/storage.js', './js/core/dataService.js',
   './js/core/supabaseAuth.js', './js/core/supabaseDataProvider.js', './js/core/dataServiceSelect.js',
   './js/core/gamification.js', './js/core/profiles.js',
-  './js/core/mascot.js', './js/core/feedback.js', './js/core/pwa.js',
+  './js/core/mascot.js', './js/core/feedback.js', './js/core/pwa.js', './js/core/push.js', './js/core/aiClient.js',
   './data/curriculum.js', './data/badges.js', './data/traps.js', './data/say.js', './data/writing.js',
   './data/technical.js', './data/sos.js', './data/lessons.js', './data/coupleChallenges.js', './data/simulators.js', './data/placement.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/apple-touch-icon.png',
@@ -93,4 +93,31 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
+});
+
+// Real Web Push (see js/core/push.js + supabase/functions/send-daily-reminders)
+// — this fires even when the app is fully closed, unlike core/pwa.js's
+// Notification-API reminder which only runs while the app is open.
+self.addEventListener('push', (event) => {
+  let data = { title: 'FluentR', body: "Don't lose your streak today!" };
+  try { if (event.data) data = event.data.json(); } catch (e) { /* keep default */ }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: 'assets/icons/icon-192.png',
+      badge: 'assets/icons/icon-192.png',
+      tag: 'fluentr-reminder'
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clients) => {
+      const existing = clients.find((c) => c.url.includes(self.location.origin));
+      if (existing) return existing.focus();
+      return self.clients.openWindow('./');
+    })
+  );
 });

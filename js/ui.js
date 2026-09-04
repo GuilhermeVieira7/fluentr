@@ -293,6 +293,7 @@ const FluentrUI = (function () {
       </div>
 
       <div class="pillar-grid">
+        ${pillarCard('ai-chat', 'AI Conversation', 'Talk it out live', 'chat', 'var(--brand-strong)', 'var(--brand-soft)')}
         ${pillarCard('sos', 'English SOS', 'I need it now', 'bolt', 'var(--streak)', 'var(--streak-soft)')}
         ${pillarCard('say', 'What Should I Say?', 'Real situations', 'message', 'var(--brand)', 'var(--brand-soft)')}
         ${pillarCard('traps', 'Brazilian Traps', 'Stop translating', 'languages', 'var(--couple)', 'var(--couple-soft)')}
@@ -554,6 +555,8 @@ const FluentrUI = (function () {
     return `<h1 style="margin-bottom:4px;">Practice</h1>
       <p class="text-soft" style="margin-bottom:20px;">The five pillars — plus a review built from your own history.</p>
       <div class="pillar-grid">
+        ${pillarCard('ai-chat', 'AI Conversation', 'Talk it out live', 'chat', 'var(--brand-strong)', 'var(--brand-soft)')}
+        ${pillarCard('ai-writing', 'AI Writing Coach', 'Paste, get corrected', 'spark', 'var(--info)', 'var(--info-soft)')}
         ${pillarCard('sos', 'English SOS', 'I need it now', 'bolt', 'var(--streak)', 'var(--streak-soft)')}
         ${pillarCard('say', 'What Should I Say?', 'Real situations', 'message', 'var(--brand)', 'var(--brand-soft)')}
         ${pillarCard('traps', 'Brazilian Traps', 'Stop translating', 'languages', 'var(--couple)', 'var(--couple-soft)')}
@@ -575,6 +578,15 @@ const FluentrUI = (function () {
         <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <button class="btn btn-subtle" data-action="start-quick" data-minutes="5">5 min</button>
           <button class="btn btn-subtle" data-action="start-quick" data-minutes="10">10 min</button>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">AI-Generated Practice</span></div>
+        <div class="card">
+          <div class="flex" style="justify-content:space-between;align-items:center;">
+            <div><div style="font-weight:700;">Fresh exercises, on demand</div><div class="text-faint" style="font-size:12px;margin-top:2px;">Generated for exactly where you're at right now — never repeats</div></div>
+            <button class="btn btn-couple btn-sm" data-action="start-ai-practice">Generate</button>
+          </div>
         </div>
       </div>`;
   }
@@ -892,6 +904,88 @@ const FluentrUI = (function () {
       <div class="onboard-options">${cards}</div>`;
   }
 
+  /* ============ AI Conversation Practice (V3) ============ */
+
+  const AI_SCENARIOS = [
+    { id: 'job-interview', name: 'Job Interview', sub: 'Land the role' },
+    { id: 'team-meeting', name: 'Team Meeting', sub: 'Status & blockers' },
+    { id: 'small-talk', name: 'Small Talk', sub: 'Coffee-machine chat' },
+    { id: 'negotiation', name: 'Negotiation', sub: 'Deadlines & scope' },
+    { id: 'customer-support', name: 'Customer Support', sub: 'Handle a ticket' },
+    { id: 'networking-event', name: 'Networking Event', sub: 'Meet someone new' }
+  ];
+
+  function renderAIChatSetup() {
+    const cards = AI_SCENARIOS.map((s) => `
+      <button class="onboard-option" data-action="pick-ai-scenario" data-scenario="${s.id}">
+        <div style="font-weight:700;">${esc(s.name)}</div>
+        <div class="text-faint" style="font-size:12px;margin-top:2px;">${esc(s.sub)}</div>
+      </button>`).join('');
+    return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
+      <h1 style="margin-bottom:4px;">AI Conversation</h1>
+      <p class="text-soft" style="margin-bottom:16px;">Pick a scenario — the AI plays a real character, reacts to what you say, and quietly corrects you in Portuguese when something sounds off.</p>
+      <div class="onboard-options">${cards}</div>`;
+  }
+
+  function renderAIChat(chat) {
+    const scenario = AI_SCENARIOS.find((s) => s.id === chat.scenario);
+    const bubbles = chat.history.map((h) => `<div class="ai-bubble ${h.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-model'}">${esc(h.text)}</div>`).join('');
+    const typing = chat.busy ? `<div class="ai-bubble-typing"><span></span><span></span><span></span></div>` : '';
+    const correction = chat.lastCorrection ? `<div class="ai-correction-card">
+        <div class="ai-correction-label">💡 Mais natural</div>
+        <div style="font-weight:700;margin-bottom:4px;">${esc(chat.lastCorrection.correction || '')}</div>
+        <div class="text-soft">${esc(chat.lastCorrection.pt || '')}</div>
+      </div>` : '';
+    const micSupported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+    return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="exit-ai-chat">${FluentrIcons.icon('arrowLeft', 15)} End conversation</button>
+      <h1 style="margin-bottom:4px;">${esc(scenario ? scenario.name : 'AI Conversation')}</h1>
+      <div class="ai-chat-scroll" id="ai-chat-scroll">
+        ${bubbles || `<div class="text-faint" style="text-align:center;padding:20px 0;">Say something to get started — in English, of course.</div>`}
+        ${typing}
+      </div>
+      ${correction}
+      <div class="ai-chat-input-row">
+        <input type="text" id="ai-chat-input" placeholder="Type in English…" ${chat.busy ? 'disabled' : ''} autocomplete="off">
+        ${micSupported ? `<button class="ai-mic-btn ${chat.listening ? 'listening' : ''}" data-action="ai-mic-toggle" ${chat.busy ? 'disabled' : ''}>${FluentrIcons.icon('mic', 18)}</button>` : ''}
+        <button class="btn btn-primary" data-action="send-ai-message" ${chat.busy ? 'disabled' : ''}>Send</button>
+      </div>`;
+  }
+
+  /* ============ AI Writing Coach (V3) ============ */
+
+  function renderAIWriting(w) {
+    if (w.busy) {
+      return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
+        <h1 style="margin-bottom:16px;">AI Writing Coach</h1>
+        <div class="card" style="text-align:center;padding:40px 20px;">
+          <div style="display:flex;justify-content:center;margin-bottom:12px;">${FluentrMascot.avatar('thinking', 60)}</div>
+          <div class="text-soft">Reading your text…</div>
+        </div>`;
+    }
+    if (w.result) {
+      const issues = w.result.issues || [];
+      const issueCards = issues.map((i) => `<div class="ai-issue-card">
+          <span class="ai-issue-type">${esc(i.type || '')}</span>
+          <div class="ai-issue-original">${esc(i.original || '')}</div>
+          <div class="ai-issue-suggestion">${esc(i.suggestion || '')}</div>
+          <div class="text-soft" style="font-size:12.5px;">${esc(i.pt || '')}</div>
+        </div>`).join('');
+      return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="clear-writing-review">${FluentrIcons.icon('arrowLeft', 15)} Review another</button>
+        <h1 style="margin-bottom:16px;">AI Writing Coach</h1>
+        <div class="card mt-16" style="margin-bottom:16px;">
+          <div style="font-weight:700;margin-bottom:6px;">Overall</div>
+          <div class="text-soft">${esc(w.result.overallPt || '')}</div>
+        </div>
+        ${issues.length ? issueCards : `<div class="empty-state"><div class="empty-state-title">Looks good!</div><div class="empty-state-sub">No issues found in this text.</div></div>`}
+        <button class="btn btn-primary btn-block mt-16" data-action="clear-writing-review">Review another text</button>`;
+    }
+    return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
+      <h1 style="margin-bottom:4px;">AI Writing Coach</h1>
+      <p class="text-soft" style="margin-bottom:16px;">Paste a real email, message, or anything you wrote in English — get it corrected, in your own words.</p>
+      <textarea class="ai-writing-textarea" id="ai-writing-input" placeholder="Paste your text here…">${esc(w.text || '')}</textarea>
+      <button class="btn btn-primary btn-block mt-16" data-action="review-writing">Review</button>`;
+  }
+
   function renderDuelTurn(duel, whoLabel, index, answerState) {
     const total = duel.exercises.length;
     const ex = duel.exercises[index].data;
@@ -1111,10 +1205,10 @@ const FluentrUI = (function () {
       <h1 style="margin-bottom:16px;">Phrasebook</h1>${rows}`;
   }
 
-  function notifyRowSub(permission) {
+  function notifyRowSub(permission, pushSupported) {
     if (permission === 'unsupported') return 'Not supported in this browser';
     if (permission === 'denied') return 'Blocked in browser settings — re-enable there first';
-    return 'Nudges you when the app is open and your streak is at risk';
+    return pushSupported ? 'Real push — reaches you even with the app closed' : 'Nudges you when the app is open and your streak is at risk';
   }
 
   function renderSettings(state, profile) {
@@ -1127,7 +1221,7 @@ const FluentrUI = (function () {
       </div>
       <div class="card" style="margin-bottom:14px;">
         <div class="settings-row">
-          <div><div class="settings-row-title">Streak reminders</div><div class="settings-row-sub">${notifyRowSub(state.notifyPermission)}</div></div>
+          <div><div class="settings-row-title">Streak reminders</div><div class="settings-row-sub">${notifyRowSub(state.notifyPermission, state.pushSupported)}</div></div>
           <button class="switch ${profile.settings.notifyStreak ? 'on' : ''}" data-action="toggle-streak-notify"></button>
         </div>
       </div>
@@ -1208,6 +1302,7 @@ const FluentrUI = (function () {
     renderPractice, renderTraps, renderSay, renderSayDetail, renderWriting, renderWritingDetail,
     renderTechnical, renderTechnicalDetail, renderSOSHub, renderSOSPack, renderSOSInterviewHub, renderSOSInterviewCategory,
     renderSimulatorStep, renderLeague, renderComeback, renderCoupleChallenge, renderDuelSetup, renderDuelTurn, renderDuelWaiting, renderDuelResult,
+    renderAIChatSetup, renderAIChat, renderAIWriting,
     renderBadges, renderProfile, renderProgress, renderPhrasebook, renderSettings, renderWeekRecap,
     showToast, showLevelUp
   };
