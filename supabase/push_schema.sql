@@ -30,20 +30,17 @@ create policy "push_subscriptions_delete_own" on public.push_subscriptions
 -- Requires the pg_cron and pg_net extensions (Database → Extensions —
 -- both are available by default on Supabase, just need enabling if off).
 --
--- ⚠️ Replace <YOUR-PROJECT-REF> below with your actual project ref (the
--- same one in your Supabase URL, https://<ref>.supabase.co) before running.
--- The URL itself isn't secret (it's already public in js/core/config.js);
--- send-daily-reminders is deployed with "verify JWT" turned OFF in the
--- dashboard specifically so this call needs no key at all — it accepts no
--- meaningful input and only ever reads its own database, so an
--- unauthenticated trigger is an acceptable, much simpler tradeoff than
--- threading a service-role key through a cron job definition.
+-- send-daily-reminders is deployed with --no-verify-jwt, specifically so
+-- this call needs no key at all — it accepts no meaningful input and only
+-- ever reads its own database, so an unauthenticated trigger is an
+-- acceptable, much simpler tradeoff than threading a service-role key
+-- through a cron job definition.
 select cron.schedule(
   'fluentr-daily-reminders',
   '0 19 * * *',
   $$
   select net.http_post(
-    url := 'https://<YOUR-PROJECT-REF>.supabase.co/functions/v1/send-daily-reminders',
+    url := 'https://hangejzdsnkyinpumihr.supabase.co/functions/v1/send-daily-reminders',
     headers := '{"Content-Type": "application/json"}'::jsonb,
     body := '{}'::jsonb
   );
