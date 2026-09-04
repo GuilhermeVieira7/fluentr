@@ -441,7 +441,9 @@ const FluentrApp = (function () {
     if (AppState.couple.lastLeaderId === leaderId) return;
     const hadPreviousLeader = !!AppState.couple.lastLeaderId;
     AppState.couple.lastLeaderId = leaderId;
-    FluentrData.updateCouple((c) => { c.lastLeaderId = leaderId; });
+    FluentrData.updateCouple((c) => { c.lastLeaderId = leaderId; })
+      .then(() => { AppState.lastSyncedAt = Date.now(); })
+      .catch(() => { /* best-effort — worst case the lead-change toast can repeat once */ });
     if (!hadPreviousLeader) return;
     if (leaderId === AppState.profile.id) FluentrUI.showToast('🔥 You just took the lead!', `${Math.abs(mine - theirs)} XP ahead this week.`, 'competitive');
     else FluentrUI.showToast(`👀 ${AppState.otherProfile.name} just passed you`, 'One good lesson could take it back.', 'competitive');
@@ -1187,7 +1189,7 @@ const FluentrApp = (function () {
   }
 
   function startLessonOrChallenge(unitId, lessonId) {
-    if (AppState.profile.hearts.count <= 0) { AppState.screen = 'out-of-hearts'; render(); return; }
+    if (AppState.profile.hearts.count <= 0) { AppState.screen = 'out-of-hearts'; transitionPending = true; render(); return; }
     const unit = window.WL_CURRICULUM.find((u) => u.id === unitId);
     if (unit.challenge.id === lessonId) {
       if (unit.challenge.kind === 'simulator') startSimulator(unit.challenge.simulatorId, unit.id, unit.challenge.id);
@@ -1202,6 +1204,7 @@ const FluentrApp = (function () {
     AppState.coupleItem = { item, answered: false, selected: null };
     AppState.screen = 'app';
     AppState.route = '__couple_challenge__';
+    transitionPending = true;
     shellEl.innerHTML = wrapApp(FluentrUI.renderCoupleChallenge(item, { answered: false, selected: null }));
   }
 
@@ -1214,20 +1217,32 @@ const FluentrApp = (function () {
     FluentrGamification.recordAnswer(AppState.profile, 'couple-' + ci.item.id + '-' + AppState.profile.id, correct, FL_XP_RULES.ANSWER_CORRECT);
     settleActivity(prevLevel);
 
-    await FluentrData.updateCouple((c) => {
+    // updateCouple retries this mutator on every CAS conflict — it must
+    // touch nothing but `c`. XP/counters/badges used to be awarded to
+    // AppState.profile *inside* the mutator, which meant a retry (a very
+    // real possibility here: checkLeagueLeadChange fires its own unawaited
+    // updateCouple from settleActivity() just above) could double-award the
+    // completion bonus. Capture what happened on the attempt that actually
+    // won, then act on it exactly once after the call resolves.
+    let bothCompletedNow = false, coupleStreakAtCompletion = 0, bothPerfect = false;
+    AppState.couple = await FluentrData.updateCouple((c) => {
+      bothCompletedNow = false;
       c.dailyChallenge.completions[AppState.profile.id] = { correct };
       const both = c.dailyChallenge.completions[AppState.profile.id] && c.dailyChallenge.completions[AppState.otherProfile.id];
       if (both) {
-        FluentrGamification.awardXP(AppState.profile, FL_XP_RULES.DAILY_CHALLENGE, 'Daily Couple Challenge');
-        AppState.profile.counters.coupleChallengesCompleted += 1;
-        const bothPerfect = c.dailyChallenge.completions[AppState.profile.id].correct && c.dailyChallenge.completions[AppState.otherProfile.id].correct;
-        FluentrGamification.checkBadges(AppState.profile, badgeCtx({ bothPerfectToday: bothPerfect, coupleStreak: c.streak.current }));
-      } else {
-        FluentrPush.notifyProfile(AppState.otherProfile.id, `${AppState.profile.name} completed today's challenge!`, "Your turn — answer it before the day ends.");
+        bothCompletedNow = true;
+        coupleStreakAtCompletion = c.streak.current;
+        bothPerfect = c.dailyChallenge.completions[AppState.profile.id].correct && c.dailyChallenge.completions[AppState.otherProfile.id].correct;
       }
     });
-    AppState.couple = await FluentrData.getCouple();
     AppState.lastSyncedAt = Date.now();
+    if (bothCompletedNow) {
+      FluentrGamification.awardXP(AppState.profile, FL_XP_RULES.DAILY_CHALLENGE, 'Daily Couple Challenge');
+      AppState.profile.counters.coupleChallengesCompleted += 1;
+      FluentrGamification.checkBadges(AppState.profile, badgeCtx({ bothPerfectToday: bothPerfect, coupleStreak: coupleStreakAtCompletion }));
+    } else {
+      FluentrPush.notifyProfile(AppState.otherProfile.id, `${AppState.profile.name} completed today's challenge!`, "Your turn — answer it before the day ends.");
+    }
     persistProfile();
     shellEl.innerHTML = wrapApp(FluentrUI.renderCoupleChallenge(ci.item, { answered: true, selected: idx }));
   }

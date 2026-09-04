@@ -29,12 +29,21 @@ Deno.serve(async (req) => {
     const sb = serviceClient();
     const { data: cached } = await sb
       .from('generated_exercises')
-      .select('id, data')
+      .select('id, data, used_count')
       .eq('topic', topic).eq('level', lvl)
       .order('used_count', { ascending: true })
       .limit(wanted);
 
     const have = cached || [];
+    // Bump used_count on every cache hit so the ascending-order pick above
+    // actually rotates through the pool over time instead of always
+    // re-serving the same rows (it stayed at its default of 0 forever
+    // without this, making the ordering a no-op). Best-effort, off the
+    // response's critical path.
+    if (have.length) {
+      Promise.all(have.map((r) => sb.from('generated_exercises').update({ used_count: (r.used_count || 0) + 1 }).eq('id', r.id)))
+        .catch((e) => console.error('used_count bump failed:', e));
+    }
     if (have.length >= wanted) {
       return jsonResponse({ exercises: have.map((r) => ({ id: r.id, ...(r.data as object) })), remaining: null, cached: true });
     }
