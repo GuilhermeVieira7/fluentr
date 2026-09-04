@@ -1094,7 +1094,8 @@ const FluentrUI = (function () {
           ${avatar(profile, 76)}
           <div class="avatar-edit-badge">${FluentrIcons.icon('spark', 13)}</div>
         </div>
-        <div style="font-family:var(--font-display);font-weight:800;font-size:18px;margin-top:10px;">${esc(profile.name)}</div>
+        <button class="section-link" style="background:none;border:none;font-size:11px;margin-top:6px;" data-action="upload-photo">${profile.photo && profile.photo.dataUrl ? 'Change photo' : 'Add a photo'}</button>
+        <div style="font-family:var(--font-display);font-weight:800;font-size:18px;margin-top:6px;">${esc(profile.name)}</div>
         <div class="text-faint" style="font-size:12.5px;">${profile.cefrLevel ? FL_CEFR_LABELS[profile.cefrLevel] + ' · ' + profile.cefrLevel : 'Level not set'}</div>
         ${profile.photo && profile.photo.dataUrl ? `
           <div class="flex gap-8" style="justify-content:center;align-items:center;margin-top:12px;max-width:220px;margin-left:auto;margin-right:auto;">
@@ -1211,6 +1212,24 @@ const FluentrUI = (function () {
     return pushSupported ? 'Real push — reaches you even with the app closed' : 'Nudges you when the app is open and your streak is at risk';
   }
 
+  // Always shown — unlike the old version, gated on `window.FLUENTR_INSTALLABLE`
+  // and silently missing entirely on iOS (Safari never fires
+  // `beforeinstallprompt`, so that flag was permanently false there — the
+  // button just never appeared, with no way to know why).
+  function renderInstallCard(installState) {
+    if (installState === 'installed') return `<div class="card" style="margin-bottom:14px;">
+        <div class="settings-row"><div class="settings-row-title">${FluentrIcons.icon('check', 15)} Installed</div></div>
+      </div>`;
+    if (installState === 'promptable') return `<div class="card" style="margin-bottom:14px;"><button class="btn btn-primary btn-block" data-action="install-pwa">Install Fluentr</button></div>`;
+    if (installState === 'ios-manual') return `<div class="card" style="margin-bottom:14px;">
+        <div class="settings-row-title" style="margin-bottom:8px;">Install Fluentr</div>
+        <div class="text-soft" style="font-size:12.5px;line-height:1.5;">
+          Tap ${FluentrIcons.icon('upload', 13)} <strong>Share</strong> at the bottom of Safari, then <strong>Add to Home Screen</strong>.
+        </div>
+      </div>`;
+    return ''; // unsupported browser — no install path to offer
+  }
+
   function renderSettings(state, profile) {
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
       <h1 style="margin-bottom:18px;">Settings</h1>
@@ -1234,7 +1253,7 @@ const FluentrUI = (function () {
         </div>
         <input type="file" id="import-file-input" accept="application/json" class="visually-hidden">
       </div>
-      ${window.FLUENTR_INSTALLABLE ? `<div class="card" style="margin-bottom:14px;"><button class="btn btn-primary btn-block" data-action="install-pwa">Install Fluentr</button></div>` : ''}
+      ${renderInstallCard(state.installState)}
       <div class="card" style="border-color:var(--danger-soft);">
         <div class="settings-row-title" style="margin-bottom:10px;">Danger zone</div>
         <button class="btn btn-danger btn-sm" data-action="reset-profile">Reset this profile</button>

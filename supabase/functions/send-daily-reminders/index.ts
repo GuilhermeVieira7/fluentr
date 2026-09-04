@@ -33,10 +33,11 @@ Deno.serve(async (_req) => {
   if (!dueProfileIds.length) return new Response(JSON.stringify({ sent: 0, reason: 'nobody at risk today' }));
 
   const { data: subs } = await sb.from('push_subscriptions').select('*').in('profile_id', dueProfileIds);
+  const profileById = new Map((profiles ?? []).map((r) => [r.id, r]));
   let sent = 0;
   const staleIds: string[] = [];
   for (const sub of subs ?? []) {
-    const p = (profiles ?? []).find((r) => r.id === sub.profile_id);
+    const p = profileById.get(sub.profile_id);
     const streakLen = (p?.data as { streak?: { current?: number } })?.streak?.current ?? 0;
     const payload = JSON.stringify({
       title: `Don't lose your ${streakLen}-day streak 🔥`,

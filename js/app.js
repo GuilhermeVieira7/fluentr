@@ -57,9 +57,13 @@ const FluentrApp = (function () {
   }
 
   async function refreshBoth() {
-    AppState.profile = await FluentrData.getProfile(AppState.profile.id);
     const otherId = AppState.profile.id === 'guilherme' ? 'rayssa' : 'guilherme';
-    AppState.otherProfile = await FluentrData.ensureProfile(otherId);
+    const [mine, theirs] = await Promise.all([
+      FluentrData.getProfile(AppState.profile.id),
+      FluentrData.ensureProfile(otherId)
+    ]);
+    AppState.profile = mine;
+    AppState.otherProfile = theirs;
   }
 
   /* ============ Boot ============ */
@@ -67,7 +71,7 @@ const FluentrApp = (function () {
   async function boot() {
     shellEl.innerHTML = FluentrUI.renderBootSkeleton();
     FluentrPWA.registerServiceWorker();
-    FluentrPWA.listenForInstallPrompt((installable) => { window.FLUENTR_INSTALLABLE = installable; if (AppState.route === 'settings') render(); });
+    FluentrPWA.listenForInstallPrompt(() => { if (AppState.route === 'settings') render(); });
 
     const theme = FluentrData.getTheme();
     applyTheme(theme);
@@ -162,13 +166,28 @@ const FluentrApp = (function () {
   // state anyway.
   const LIVE_REFRESH_ROUTES = ['home', 'league', 'practice', 'progress', 'comeback'];
 
+  // Without this, switching profiles (case 'switch-profile' below) left
+  // AppState.unsubscribeLive set from the OLD session — startLiveSync()'s
+  // guard would then skip resubscribing for the new profile entirely,
+  // silently killing live sync for the rest of that session.
+  function stopLiveSync() {
+    if (AppState.unsubscribeLive) { AppState.unsubscribeLive(); AppState.unsubscribeLive = null; }
+  }
+
   function startLiveSync() {
     if (AppState.unsubscribeLive) return;
     AppState.unsubscribeLive = FluentrData.subscribeToChanges(async () => {
       if (AppState.screen !== 'app' || !LIVE_REFRESH_ROUTES.includes(AppState.route)) return;
       const before = AppState.otherProfile ? FluentrGamification.buildStats(AppState.otherProfile).weeklyXP : 0;
-      await refreshBoth();
-      AppState.couple = await FluentrData.getCouple();
+      const otherId = AppState.profile.id === 'guilherme' ? 'rayssa' : 'guilherme';
+      const [mine, theirs, couple] = await Promise.all([
+        FluentrData.getProfile(AppState.profile.id),
+        FluentrData.ensureProfile(otherId),
+        FluentrData.getCouple()
+      ]);
+      AppState.profile = mine;
+      AppState.otherProfile = theirs;
+      AppState.couple = couple;
       const after = FluentrGamification.buildStats(AppState.otherProfile).weeklyXP;
       if (after > before) {
         FluentrUI.showToast(`${AppState.otherProfile.name} just earned ${after - before} XP`, 'Live from their device.', 'competitive');
@@ -208,6 +227,10 @@ const FluentrApp = (function () {
     if (AppState.screen === 'week-recap') { shellEl.innerHTML = wrapApp(FluentrUI.renderWeekRecap(FluentrLessonEngine.buildWeeklyRecap(AppState.profile))); return; }
 
     shellEl.innerHTML = wrapApp(renderRoute());
+    if (AppState.route === 'ai-chat') {
+      const scroller = document.getElementById('ai-chat-scroll');
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    }
   }
 
   function wrapApp(innerHTML) {
@@ -239,7 +262,7 @@ const FluentrApp = (function () {
       case 'profile': return FluentrUI.renderProfile(p, op);
       case 'progress': return FluentrUI.renderProgress(p);
       case 'phrasebook': return FluentrUI.renderPhrasebook(p);
-      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled() }, p);
+      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled(), installState: FluentrPWA.installState() }, p);
       default: return FluentrUI.renderHome(p, op, c);
     }
   }
@@ -587,7 +610,6 @@ const FluentrApp = (function () {
       awardAIActivity('aiChat', 3, 'AI conversation practice');
     } catch (e) {
       chat.history.push({ role: 'model', text: '⚠️ ' + (e.message || 'Something went wrong. Try again.') });
-      render();
     } finally {
       chat.busy = false;
       render();
@@ -923,7 +945,7 @@ const FluentrApp = (function () {
       case 'answer-sim': simulatorAnswer(parseInt(el.dataset.index, 10)); break;
 
       case 'retake-placement': startPlacement(); AppState.screen = 'placement'; render(); break;
-      case 'switch-profile': FluentrData.setActiveProfileId(''); showGate(); break;
+      case 'switch-profile': stopLiveSync(); FluentrData.setActiveProfileId(''); showGate(); break;
       case 'toggle-theme': { const t = FluentrData.getTheme() === 'dark' ? 'light' : 'dark'; FluentrData.setTheme(t); applyTheme(t); render(); break; }
       case 'toggle-streak-notify': {
         const next = !AppState.profile.settings.notifyStreak;

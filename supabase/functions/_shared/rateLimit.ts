@@ -19,25 +19,14 @@ export function serviceClient() {
 }
 
 // Returns { allowed: true, remaining } or { allowed: false, remaining: 0 }.
-// Increments the counter as part of the same check — callers should only
-// proceed to the (costly) Gemini call when allowed is true.
+// Delegates to the increment_ai_usage() Postgres function (ai_schema.sql)
+// so the check-and-increment is one atomic statement — a separate
+// SELECT-then-UPSERT here would leave a race window where two concurrent
+// requests could both pass the check before either write landed.
 export async function checkAndConsume(profileId: string): Promise<{ allowed: boolean; remaining: number }> {
   const sb = serviceClient();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { data: existing } = await sb
-    .from('ai_usage')
-    .select('count')
-    .eq('profile_id', profileId)
-    .eq('usage_date', today)
-    .maybeSingle();
-
-  const current = existing?.count ?? 0;
-  if (current >= DAILY_LIMIT) return { allowed: false, remaining: 0 };
-
-  await sb.from('ai_usage').upsert(
-    { profile_id: profileId, usage_date: today, count: current + 1 },
-    { onConflict: 'profile_id,usage_date' },
-  );
-  return { allowed: true, remaining: DAILY_LIMIT - current - 1 };
+  const { data, error } = await sb.rpc('increment_ai_usage', { p_profile_id: profileId, p_limit: DAILY_LIMIT });
+  if (error) throw error;
+  if (data === null) return { allowed: false, remaining: 0 };
+  return { allowed: true, remaining: DAILY_LIMIT - data };
 }

@@ -41,6 +41,26 @@ const FluentrPWA = (function () {
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
 
+  // iOS/iPadOS Safari never fires `beforeinstallprompt` — there is no
+  // programmatic install API there at all, only the manual Share → Add to
+  // Home Screen flow. Detected via UA rather than feature-testing because
+  // there's no reliable capability check for "is this iOS Safari."
+  function isIOS() {
+    const ua = navigator.userAgent || '';
+    const iPadOS13Plus = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1; // iPadOS reports as Mac
+    return /iPad|iPhone|iPod/.test(ua) || iPadOS13Plus;
+  }
+
+  // One state to drive the Settings "Install" row instead of scattering
+  // these checks across ui.js/app.js: 'installed' | 'promptable' |
+  // 'ios-manual' | 'unsupported'.
+  function installState() {
+    if (isStandalone()) return 'installed';
+    if (deferredPrompt) return 'promptable';
+    if (isIOS()) return 'ios-manual';
+    return 'unsupported';
+  }
+
   /* ============ Local notifications ============
      Honest scope: this is the Notification API, checked when the app is
      opened/foregrounded — not a real push subscription (that needs a
@@ -81,7 +101,7 @@ const FluentrPWA = (function () {
   }
 
   return {
-    registerServiceWorker, listenForInstallPrompt, promptInstall, isStandalone,
+    registerServiceWorker, listenForInstallPrompt, promptInstall, isStandalone, isIOS, installState,
     notificationsSupported, requestNotificationPermission, notificationPermission, maybeNotify
   };
 })();
