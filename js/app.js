@@ -90,6 +90,7 @@ const FluentrApp = (function () {
   }
 
   async function enterProfile(id) {
+    shellEl.innerHTML = FluentrUI.renderBootSkeleton();
     FluentrData.setActiveProfileId(id);
     AppState.profile = await FluentrData.ensureProfile(id);
     FluentrGamification.regenHearts(AppState.profile);
@@ -1009,8 +1010,16 @@ const FluentrApp = (function () {
       case 'export-data': exportJSON(FluentrData.exportAll(), 'fluentr-backup'); break;
       case 'export-couple': exportJSON(Promise.resolve(JSON.stringify(AppState.couple, null, 2)), 'fluentr-couple'); break;
       case 'import-data': document.getElementById('import-file-input').click(); break;
-      case 'reset-profile': if (window.confirm('Reset ' + AppState.profile.name + '’s progress? This cannot be undone.')) { FluentrData.resetProfile(AppState.profile.id).then(() => enterProfile(AppState.profile.id)); } break;
-      case 'reset-all': if (window.confirm('Reset ALL Fluentr data for both profiles? This cannot be undone.')) { FluentrData.resetAll().then(() => { FluentrData.setActiveProfileId(''); showGate(); }); } break;
+      case 'reset-profile':
+        if (window.prompt('This cannot be undone. Type RESET to erase ' + AppState.profile.name + '’s progress:') === 'RESET') {
+          FluentrData.resetProfile(AppState.profile.id).then(() => enterProfile(AppState.profile.id));
+        }
+        break;
+      case 'reset-all':
+        if (window.prompt('This cannot be undone. Type RESET to erase ALL Fluentr data for both profiles:') === 'RESET') {
+          FluentrData.resetAll().then(() => { FluentrData.setActiveProfileId(''); showGate(); });
+        }
+        break;
       case 'restore-backup': {
         if (!window.confirm('Restore this backup? Your current progress will be overwritten with this snapshot.')) break;
         FluentrData.restoreBackup(el.dataset.id).then(() => {
@@ -1137,6 +1146,8 @@ const FluentrApp = (function () {
         AppState.profile.counters.coupleChallengesCompleted += 1;
         const bothPerfect = c.dailyChallenge.completions[AppState.profile.id].correct && c.dailyChallenge.completions[AppState.otherProfile.id].correct;
         FluentrGamification.checkBadges(AppState.profile, badgeCtx({ bothPerfectToday: bothPerfect, coupleStreak: c.streak.current }));
+      } else {
+        FluentrPush.notifyProfile(AppState.otherProfile.id, `${AppState.profile.name} completed today's challenge!`, "Your turn — answer it before the day ends.");
       }
     });
     AppState.couple = await FluentrData.getCouple();
