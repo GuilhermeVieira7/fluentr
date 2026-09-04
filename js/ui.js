@@ -60,6 +60,29 @@ const FluentrIcons = (function () {
 const FluentrUI = (function () {
 
   function esc(str) { const d = document.createElement('div'); d.textContent = str == null ? '' : String(str); return d.innerHTML; }
+
+  // Small pill showing the shared daily AI-practice allowance (chat +
+  // writing review + generated exercises all draw from the same server-side
+  // counter — see supabase/functions/_shared/rateLimit.ts) so hitting the
+  // limit is never a surprise mid-conversation.
+  function aiUsageChip(remaining) {
+    if (remaining == null) return '';
+    const low = remaining <= 2;
+    return `<div class="ai-usage-chip ${low ? 'low' : ''}" style="margin-bottom:12px;">
+      ${remaining <= 0 ? "Today's AI limit reached — back tomorrow" : `${remaining} AI practice${remaining === 1 ? '' : 's'} left today`}
+    </div>`;
+  }
+
+  // Shared empty-state block: a mascot mood, a title, and a subline —
+  // used everywhere a list/section has nothing to show yet, so those
+  // moments read as "designed" rather than a bare sentence.
+  function emptyState(mood, title, sub) {
+    return `<div class="empty-state">
+      <div class="empty-state-mascot">${FluentrMascot.avatar(mood || 'idle', 44)}</div>
+      <div class="empty-state-title">${esc(title)}</div>
+      ${sub ? `<div class="empty-state-sub">${esc(sub)}</div>` : ''}
+    </div>`;
+  }
   function pct(n) { return Math.round(n * 100) + '%'; }
   function initials(name) { return (name || '?').trim().charAt(0).toUpperCase(); }
 
@@ -79,7 +102,7 @@ const FluentrUI = (function () {
     return `<div class="xp-ring" style="width:${size}px;height:${size}px;">
       <svg width="${size}" height="${size}">
         <circle class="ring-track" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${strokeW}"></circle>
-        <circle class="ring-fill" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${strokeW}" stroke-dasharray="${c}" stroke-dashoffset="${offset}"></circle>
+        <circle class="ring-fill" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${strokeW}" stroke-dasharray="${c}" stroke-dashoffset="${c}" data-offset="${offset}"></circle>
       </svg>
       <div class="ring-center">${centerHTML || ''}</div>
     </div>`;
@@ -210,7 +233,7 @@ const FluentrUI = (function () {
   function renderPlacementResult(result) {
     const rows = Object.entries(result.byCategory).map(([cat, v]) => `
       <div class="skill-score-row"><div class="skill-score-head"><span>${esc(cat)}</span><span>${pct(v.correct / v.total)}</span></div>
-      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct(v.correct / v.total)};"></div></div></div>`).join('');
+      <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${pct(v.correct / v.total)}"></div></div></div>`).join('');
     return `
       <div class="complete-card">
         <div class="level-result-badge"><span class="lvl">${result.level}</span><span class="lvl-label">${FL_CEFR_LABELS[result.level]}</span></div>
@@ -219,6 +242,21 @@ const FluentrUI = (function () {
         <div style="text-align:left;">${rows}</div>
         <button class="btn btn-primary btn-block mt-16" data-action="finish-placement">Continue</button>
       </div>`;
+  }
+
+  /* ============ Crash fallback ============ */
+
+  // Last-resort screen for an uncaught error in render() or a click handler —
+  // without this, an unhandled exception mid-innerHTML-swap can leave the
+  // shell half-written or frozen with no way out except a manual refresh
+  // the user has to think to try themselves.
+  function renderCrashScreen() {
+    return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;gap:14px;">
+      <div style="font-size:40px;">😵</div>
+      <h2 style="margin:0;">Algo deu errado</h2>
+      <p class="text-soft" style="max-width:320px;">Não foi um bug de digitação seu — a tela travou. Seu progresso já salvo continua seguro.</p>
+      <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
+    </div>`;
   }
 
   /* ============ Boot skeleton ============ */
@@ -275,7 +313,7 @@ const FluentrUI = (function () {
         <div class="hero-greeting">${greeting()}, ${esc(profile.name)}.</div>
         <div class="hero-sub">${stats.currentStreak > 0 ? `🔥 ${stats.currentStreak} day streak` : 'Start a streak today'}</div>
         <div class="hero-goal-row"><span class="hero-goal-label">Today's goal</span><span class="hero-goal-value">${todayXP} / ${goal} XP</span></div>
-        <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct(goalPct)};"></div></div>
+        <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${pct(goalPct)}"></div></div>
         ${proximityNote ? `<div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.85);margin-top:8px;">${esc(proximityNote)}</div>` : ''}
         <div class="hero-cta"><button class="btn btn-block" style="background:#fff;color:var(--brand-strong);" data-action="continue-learning">Continue Lesson</button></div>
       </div>
@@ -355,14 +393,14 @@ const FluentrUI = (function () {
 
   function nextLessonPreview(profile) {
     const next = FluentrLessonEngine.findNextLesson(profile);
-    if (!next) return `<div class="empty-state"><div class="empty-state-title">Path complete — nicely done.</div><div class="empty-state-sub">Check Smart Review to stay sharp, or explore the pillars below.</div></div>`;
+    if (!next) return emptyState('celebrating', 'Path complete — nicely done.', 'Check Smart Review to stay sharp, or explore the pillars below.');
     const up = next.unitProgress;
     const pctDone = up ? Math.round((up.done / up.total) * 100) : 0;
     return `
       <div class="page-eyebrow text-faint" style="font-weight:800;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Continue your journey</div>
       <div style="font-weight:800;font-size:16px;font-family:var(--font-display);">${esc(next.unitName)}</div>
       <div class="text-faint" style="font-size:12.5px;margin-top:2px;margin-bottom:12px;">${esc(next.lessonName)}</div>
-      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pctDone}%;"></div></div>
+      <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${pctDone}%"></div></div>
       <div class="flex" style="align-items:center;justify-content:space-between;margin-top:14px;gap:12px;">
         <div class="flex gap-8" style="font-size:11.5px;color:var(--ink-faint);">
           <span>${pctDone}% of module</span><span>·</span><span>~${next.estMinutes} min</span><span>·</span><span style="color:var(--xp);font-weight:700;">+${next.estXP} XP</span>
@@ -626,7 +664,7 @@ const FluentrUI = (function () {
         ${FluentrIcons.icon('search', 17)}<span class="say-search-icon">${FluentrIcons.icon('search', 17)}</span>
         <input type="text" id="say-search-input" placeholder="e.g. pedir mais tempo, discordar, small talk…" value="${esc(query || '')}">
       </div>
-      ${cards || `<div class="empty-state"><div class="empty-state-sub">No matches — try a different word.</div></div>`}`;
+      ${cards || emptyState('thinking', 'No matches', 'Try a different word.')}`;
   }
 
   function renderSayDetail(s) {
@@ -845,7 +883,7 @@ const FluentrUI = (function () {
           <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:12.5px;font-weight:700;">${esc(profile.name)}</span><span class="mono" style="font-size:14px;">${trophyRow(profile.id)}</span></div>
           <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:12.5px;font-weight:700;">${esc(otherProfile.name)}</span><span class="mono" style="font-size:14px;">${trophyRow(otherProfile.id)}</span></div>
           <div class="text-faint" style="text-align:center;font-size:12px;border-top:1px solid var(--line-soft);padding-top:10px;">${winsA} – ${winsB}</div>
-        </div>` : `<div class="empty-state"><div class="empty-state-title">Complete your first Weekly Duel</div><div class="empty-state-sub">This week's champion history will show up here.</div></div>`}
+        </div>` : emptyState('idle', 'Complete your first Weekly Duel', "This week's champion history will show up here.")}
       </div>
 
       <div class="section">
@@ -856,7 +894,7 @@ const FluentrUI = (function () {
   }
 
   function renderRecentDuels(history, profile, otherProfile) {
-    if (!history || !history.length) return `<div class="empty-state"><div class="empty-state-title">No duels yet</div><div class="empty-state-sub">Start a Duel above — 10 questions, same device, loser buys the next coffee.</div></div>`;
+    if (!history || !history.length) return emptyState('competitive', 'No duels yet', 'Start a Duel above — 10 questions, same device, loser buys the next coffee.');
     const topicLabel = { business: 'Business English', technical: 'Technical English', traps: 'Brazilian Traps', mixed: 'Mixed' };
     return history.slice(0, 5).map((d) => {
       const mine = d.results[profile.id] || { score: 0 };
@@ -915,7 +953,7 @@ const FluentrUI = (function () {
     { id: 'networking-event', name: 'Networking Event', sub: 'Meet someone new' }
   ];
 
-  function renderAIChatSetup() {
+  function renderAIChatSetup(remaining) {
     const cards = AI_SCENARIOS.map((s) => `
       <button class="onboard-option" data-action="pick-ai-scenario" data-scenario="${s.id}">
         <div style="font-weight:700;">${esc(s.name)}</div>
@@ -924,10 +962,11 @@ const FluentrUI = (function () {
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
       <h1 style="margin-bottom:4px;">AI Conversation</h1>
       <p class="text-soft" style="margin-bottom:16px;">Pick a scenario — the AI plays a real character, reacts to what you say, and quietly corrects you in Portuguese when something sounds off.</p>
+      ${aiUsageChip(remaining)}
       <div class="onboard-options">${cards}</div>`;
   }
 
-  function renderAIChat(chat) {
+  function renderAIChat(chat, remaining) {
     const scenario = AI_SCENARIOS.find((s) => s.id === chat.scenario);
     const bubbles = chat.history.map((h) => `<div class="ai-bubble ${h.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-model'}">${esc(h.text)}</div>`).join('');
     const typing = chat.busy ? `<div class="ai-bubble-typing"><span></span><span></span><span></span></div>` : '';
@@ -939,6 +978,7 @@ const FluentrUI = (function () {
     const micSupported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="exit-ai-chat">${FluentrIcons.icon('arrowLeft', 15)} End conversation</button>
       <h1 style="margin-bottom:4px;">${esc(scenario ? scenario.name : 'AI Conversation')}</h1>
+      ${aiUsageChip(remaining)}
       <div class="ai-chat-scroll" id="ai-chat-scroll">
         ${bubbles || `<div class="text-faint" style="text-align:center;padding:20px 0;">Say something to get started — in English, of course.</div>`}
         ${typing}
@@ -946,14 +986,14 @@ const FluentrUI = (function () {
       ${correction}
       <div class="ai-chat-input-row">
         <input type="text" id="ai-chat-input" placeholder="Type in English…" ${chat.busy ? 'disabled' : ''} autocomplete="off">
-        ${micSupported ? `<button class="ai-mic-btn ${chat.listening ? 'listening' : ''}" data-action="ai-mic-toggle" ${chat.busy ? 'disabled' : ''}>${FluentrIcons.icon('mic', 18)}</button>` : ''}
+        ${micSupported ? `<button class="ai-mic-btn ${chat.listening ? 'listening' : ''}" data-action="ai-mic-toggle" aria-label="${chat.listening ? 'Stop voice input' : 'Start voice input'}" ${chat.busy ? 'disabled' : ''}>${FluentrIcons.icon('mic', 18)}</button>` : ''}
         <button class="btn btn-primary" data-action="send-ai-message" ${chat.busy ? 'disabled' : ''}>Send</button>
       </div>`;
   }
 
   /* ============ AI Writing Coach (V3) ============ */
 
-  function renderAIWriting(w) {
+  function renderAIWriting(w, remaining) {
     if (w.busy) {
       return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
         <h1 style="margin-bottom:16px;">AI Writing Coach</h1>
@@ -976,12 +1016,13 @@ const FluentrUI = (function () {
           <div style="font-weight:700;margin-bottom:6px;">Overall</div>
           <div class="text-soft">${esc(w.result.overallPt || '')}</div>
         </div>
-        ${issues.length ? issueCards : `<div class="empty-state"><div class="empty-state-title">Looks good!</div><div class="empty-state-sub">No issues found in this text.</div></div>`}
+        ${issues.length ? issueCards : emptyState('happy', 'Looks good!', 'No issues found in this text.')}
         <button class="btn btn-primary btn-block mt-16" data-action="clear-writing-review">Review another text</button>`;
     }
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="practice">${FluentrIcons.icon('arrowLeft', 15)} Practice</button>
       <h1 style="margin-bottom:4px;">AI Writing Coach</h1>
       <p class="text-soft" style="margin-bottom:16px;">Paste a real email, message, or anything you wrote in English — get it corrected, in your own words.</p>
+      ${aiUsageChip(remaining)}
       <textarea class="ai-writing-textarea" id="ai-writing-input" placeholder="Paste your text here…">${esc(w.text || '')}</textarea>
       <button class="btn btn-primary btn-block mt-16" data-action="review-writing">Review</button>`;
   }
@@ -1034,17 +1075,25 @@ const FluentrUI = (function () {
 
   // League card for a duel someone started that's waiting on a response —
   // "Play" if it's your turn, a waiting note if you're the one who's played.
+  const DUEL_STALE_DAYS = 7;
   function renderPendingDuelCard(pendingDuel, profile, otherProfile) {
     if (!pendingDuel) return '';
     const topicLabel = { business: 'Business English', technical: 'Technical English', traps: 'Brazilian Traps', mixed: 'Mixed' };
     const myTurn = !pendingDuel.results[profile.id];
-    return `<div class="card mt-16" style="margin-bottom:18px;border-color:var(--couple-soft);">
+    const ageDays = pendingDuel.createdAt ? (Date.now() - new Date(pendingDuel.createdAt).getTime()) / 86400000 : 0;
+    const stale = ageDays >= DUEL_STALE_DAYS;
+    const sub = stale
+      ? `Started ${Math.floor(ageDays)} days ago — probably forgotten. Cancel it and start a fresh one?`
+      : (myTurn ? `${esc(otherProfile.name)} already played — your turn` : `Waiting on ${esc(otherProfile.name)}`);
+    return `<div class="card mt-16" style="margin-bottom:18px;border-color:${stale ? 'var(--line)' : 'var(--couple-soft)'};${stale ? 'opacity:.75;' : ''}">
       <div class="flex" style="justify-content:space-between;align-items:center;">
         <div>
-          <div style="font-weight:700;">${esc(topicLabel[pendingDuel.topic] || pendingDuel.topic)} Duel pending</div>
-          <div class="text-faint" style="font-size:12px;margin-top:2px;">${myTurn ? `${esc(otherProfile.name)} already played — your turn` : `Waiting on ${esc(otherProfile.name)}`}</div>
+          <div style="font-weight:700;">${esc(topicLabel[pendingDuel.topic] || pendingDuel.topic)} Duel ${stale ? 'stale' : 'pending'}</div>
+          <div class="text-faint" style="font-size:12px;margin-top:2px;">${sub}</div>
         </div>
-        ${myTurn
+        ${stale
+        ? `<button class="btn btn-subtle btn-sm" data-action="cancel-pending-duel">Cancel</button>`
+        : myTurn
         ? `<button class="btn btn-couple btn-sm" data-action="play-pending-duel">Play</button>`
         : `<button class="btn btn-subtle btn-sm" data-action="cancel-pending-duel">Cancel</button>`}
       </div>
@@ -1060,8 +1109,8 @@ const FluentrUI = (function () {
     all.forEach((b) => { if (profile.badges.includes(b.id) && rarityCounts[b.rarity] !== undefined) rarityCounts[b.rarity]++; });
     const cards = all.map((b) => {
       const has = profile.badges.includes(b.id);
-      return `<div class="badge-card ${has ? 'unlocked' : ''} rarity-${b.rarity}">
-        <div class="badge-icon-wrap">${FluentrIcons.icon(b.icon, 20)}</div>
+      return `<div class="badge-card ${has ? 'unlocked' : ''} rarity-${b.rarity}" title="${esc(b.description)}">
+        <div class="badge-medal"><div class="badge-medal-disc">${FluentrIcons.icon(b.icon, 22)}</div></div>
         <div class="badge-name">${esc(b.name)}</div>
         <div class="badge-rarity-label" style="color:var(--rarity-${b.rarity});">${b.rarity}</div>
       </div>`;
@@ -1085,7 +1134,7 @@ const FluentrUI = (function () {
     const skillRows = skills.map((s) => `
       <div class="progress-skill-row ${s.available ? '' : 'skill-locked'}">
         <div class="progress-skill-head"><span class="progress-skill-name">${esc(s.label)}${!s.available ? ' <span class=\"text-faint\" style=\"font-weight:600;\">(coming soon)</span>' : ''}</span><span class="progress-skill-pct">${s.available ? pct(s.value) : '—'}</span></div>
-        <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${s.available ? pct(s.value) : '0%'};"></div></div>
+        <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${s.available ? pct(s.value) : '0%'}"></div></div>
       </div>`).join('');
 
     return `<h1 style="margin-bottom:18px;">Profile</h1>
@@ -1111,7 +1160,7 @@ const FluentrUI = (function () {
           <div class="flex" style="justify-content:space-between;font-size:11px;color:var(--ink-faint);margin-bottom:4px;">
             <span>Level ${stats.level}</span><span>${stats.xpForNext ? `${stats.xpForNext} XP to Level ${stats.level + 1}` : 'Max level'}</span>
           </div>
-          <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct(stats.progress)};"></div></div>
+          <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${pct(stats.progress)}"></div></div>
         </div>
         <input type="file" id="photo-file-input" accept="image/*" class="visually-hidden">
       </div>
@@ -1144,7 +1193,7 @@ const FluentrUI = (function () {
     ];
     const rows = pillars.map(([name, val, max]) => `<div class="progress-skill-row">
       <div class="progress-skill-head"><span class="progress-skill-name">${name}</span><span class="progress-skill-pct">${pct(Math.min(1, val / max))}</span></div>
-      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct(Math.min(1, val / max))};"></div></div>
+      <div class="goal-bar-track"><div class="goal-bar-fill fill-anim" style="width:0%;" data-w="${pct(Math.min(1, val / max))}"></div></div>
     </div>`).join('');
 
     const week = weekDots(profile);
@@ -1153,7 +1202,7 @@ const FluentrUI = (function () {
       return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
         <h1 style="margin-bottom:16px;">Progress</h1>
         ${FluentrMascot.bubble('idle', 'Your journey starts here — complete your first lesson and this page fills in.', 52)}
-        <div class="empty-state"><div class="empty-state-title">Nothing tracked yet</div><div class="empty-state-sub">XP, accuracy, streaks, and skill breakdown will show up as soon as you start practicing.</div></div>`;
+        ${emptyState('encouraging', 'Nothing tracked yet', 'XP, accuracy, streaks, and skill breakdown will show up as soon as you start practicing.')}`;
     }
 
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
@@ -1166,8 +1215,34 @@ const FluentrUI = (function () {
       </div>
       <div class="section-head"><span class="section-title">This week</span></div>
       <div class="card" style="margin-bottom:20px;">${week}</div>
+      <div class="section-head"><span class="section-title">Last 6 weeks</span></div>
+      <div class="card" style="margin-bottom:20px;">${weeklyXPChart(profile)}</div>
       <div class="section-head"><span class="section-title">By area</span></div>
       <div class="card">${rows}</div>`;
+  }
+
+  // Small dependency-free SVG bar chart — no charting library needed for
+  // 6 bars, and it keeps the bundle at zero extra KB.
+  function weeklyXPChart(profile) {
+    const weeks = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 7 * 86400000);
+      const key = flIsoWeekKey(d);
+      weeks.push({ key, xp: (profile.weeklyXP && profile.weeklyXP[key]) || 0, isCurrent: i === 0 });
+    }
+    const max = Math.max(1, ...weeks.map((w) => w.xp));
+    const barW = 34, gap = 14, h = 88;
+    const bars = weeks.map((w, i) => {
+      const barH = Math.max(3, Math.round((w.xp / max) * h));
+      const x = i * (barW + gap);
+      return `<div class="xp-chart-col" style="width:${barW}px;">
+        <div class="xp-chart-value">${w.xp || ''}</div>
+        <div class="xp-chart-bar ${w.isCurrent ? 'current' : ''}" style="height:${barH}px;width:${barW}px;"></div>
+        <div class="xp-chart-label">${w.isCurrent ? 'Now' : 'W' + w.key.slice(-2)}</div>
+      </div>`;
+    }).join('');
+    return `<div class="xp-chart-row" style="height:${h + 34}px;">${bars}</div>`;
   }
 
   function weekDots(profile) {
@@ -1189,7 +1264,7 @@ const FluentrUI = (function () {
     const terms = Object.entries(profile.vocabulary);
     if (!terms.length) return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
       <h1 style="margin-bottom:16px;">Phrasebook</h1>
-      <div class="empty-state"><div class="empty-state-title">Nothing saved yet</div><div class="empty-state-sub">Phrases you encounter in lessons and pillars will collect here automatically.</div></div>`;
+      ${emptyState('idle', 'Nothing saved yet', 'Phrases you encounter in lessons and pillars will collect here automatically.')}`;
     const masteryLabel = { new: 'New', learning: 'Learning', weak: 'Weak', mastered: 'Mastered' };
     const masteryColor = { new: 'var(--ink-faint)', learning: 'var(--brand)', weak: 'var(--danger)', mastered: 'var(--success)' };
     const rows = terms.map(([term, v]) => {
@@ -1254,15 +1329,15 @@ const FluentrUI = (function () {
     return `<button class="section-link flex gap-8" style="align-items:center;margin-bottom:10px;background:none;border:none;" data-action="navigate" data-route="profile">${FluentrIcons.icon('arrowLeft', 15)} Profile</button>
       <h1 style="margin-bottom:18px;">Settings</h1>
       <div class="card" style="margin-bottom:14px;">
-        <div class="settings-row"><div class="settings-row-title">Dark mode</div><button class="switch ${state.theme === 'dark' ? 'on' : ''}" data-action="toggle-theme"></button></div>
-        <div class="settings-row" style="margin-top:10px;"><div class="settings-row-title">Sound & haptics</div><button class="switch ${state.sfxEnabled ? 'on' : ''}" data-action="toggle-sfx"></button></div>
+        <div class="settings-row"><div class="settings-row-title">Dark mode</div><button class="switch ${state.theme === 'dark' ? 'on' : ''}" data-action="toggle-theme" role="switch" aria-checked="${state.theme === 'dark'}" aria-label="Dark mode"></button></div>
+        <div class="settings-row" style="margin-top:10px;"><div class="settings-row-title">Sound & haptics</div><button class="switch ${state.sfxEnabled ? 'on' : ''}" data-action="toggle-sfx" role="switch" aria-checked="${!!state.sfxEnabled}" aria-label="Sound and haptics"></button></div>
         <div class="form-row" style="margin-top:14px;margin-bottom:0;"><label class="form-label">Daily goal (XP)</label><input type="number" class="form-input" id="daily-goal-input" min="10" max="200" value="${profile.settings.dailyGoalXP}"></div>
         <button class="btn btn-primary btn-sm mt-8" data-action="save-daily-goal">Save</button>
       </div>
       <div class="card" style="margin-bottom:14px;">
         <div class="settings-row">
           <div><div class="settings-row-title">Streak reminders</div><div class="settings-row-sub">${notifyRowSub(state.notifyPermission, state.pushSupported)}</div></div>
-          <button class="switch ${profile.settings.notifyStreak ? 'on' : ''}" data-action="toggle-streak-notify"></button>
+          <button class="switch ${profile.settings.notifyStreak ? 'on' : ''}" data-action="toggle-streak-notify" role="switch" aria-checked="${!!profile.settings.notifyStreak}" aria-label="Streak reminders"></button>
         </div>
       </div>
       <div class="card" style="margin-bottom:14px;">
@@ -1336,7 +1411,7 @@ const FluentrUI = (function () {
 
   return {
     esc, pct, initials, avatar, xpRing, heartsRow, timeAgo, greeting,
-    renderRail, renderTopbar, renderBottomNav, NAV_ITEMS, renderBootSkeleton,
+    renderRail, renderTopbar, renderBottomNav, NAV_ITEMS, renderBootSkeleton, renderCrashScreen,
     renderProfileGate, renderOnboardingGoal, renderOnboardingPlacementChoice,
     renderPlacementQuestion, renderPlacementResult,
     renderHome, renderLearn, renderExerciseItem, renderLessonComplete, renderOutOfHearts,

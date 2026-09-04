@@ -19,6 +19,7 @@ const FluentrApp = (function () {
     onboardingId: null,
     aiChat: { scenario: null, history: [], busy: false, lastCorrection: null, listening: false },
     aiWriting: { text: '', result: null, busy: false },
+    aiRemaining: null,
     settingsBackups: null
   };
 
@@ -37,22 +38,27 @@ const FluentrApp = (function () {
   /* ============ Persistence helpers ============ */
 
   // Most call sites fire this without awaiting or catching it — under
-  // SupabaseDataProvider a network hiccup makes saveProfile throw, which
-  // used to become a silently-swallowed unhandled rejection: XP/hearts/
-  // streak changes would vanish on next reload with zero indication
-  // anything went wrong. This can't retry on its own (the failed write is
-  // already gone), but it at least tells the user once — rate-limited so a
-  // stretch of offline play doesn't spam a toast on every single answer.
+  // SupabaseDataProvider a network hiccup makes saveProfile throw. The
+  // in-memory AppState.profile already has every change (XP, hearts,
+  // streak — all local, synchronous), so nothing is lost; only the write
+  // to Supabase failed. Marking a pending-save flag and retrying the
+  // CURRENT profile (not a stashed snapshot, which could be stale by the
+  // time the network comes back) on the browser's 'online' event closes
+  // that gap automatically instead of leaving it to the next successful
+  // answer to happen to flush it.
+  const PENDING_SAVE_KEY = 'fluentr_pending_save';
   let lastPersistFailureToastAt = 0;
   async function persistProfile() {
     if (!AppState.profile) return;
     try {
       await FluentrData.saveProfile(AppState.profile);
+      try { window.localStorage.removeItem(PENDING_SAVE_KEY); } catch (e) { /* ignore */ }
     } catch (e) {
+      try { window.localStorage.setItem(PENDING_SAVE_KEY, '1'); } catch (e2) { /* ignore */ }
       const now = Date.now();
       if (now - lastPersistFailureToastAt > 30000) {
         lastPersistFailureToastAt = now;
-        FluentrUI.showToast('Could not save your progress', 'Check your connection.', null);
+        FluentrUI.showToast('Could not save your progress', "We'll retry automatically once you're back online.", null);
       }
     }
   }
@@ -202,9 +208,15 @@ const FluentrApp = (function () {
     });
   }
 
+  // Set right before a deliberate navigation (route switch) so render()
+  // knows to play the view transition — everyday re-renders (answering a
+  // question, typing in search) must NOT replay it, or the UI would feel
+  // jittery instead of premium.
+  let transitionPending = false;
   function setRoute(name) {
     AppState.screen = 'app';
     AppState.route = name;
+    transitionPending = true;
     if (name === 'say') { AppState.say = { query: '', results: null }; }
     if (name === 'sos') AppState.sos = { view: 'hub' };
     if (name === 'settings') loadSettingsBackups();
@@ -233,29 +245,57 @@ const FluentrApp = (function () {
 
   /* ============ Render ============ */
 
-  function render() {
-    if (AppState.screen === 'gate') return; // already rendered
-    if (AppState.screen === 'onboard-goal') { shellEl.innerHTML = FluentrUI.renderOnboardingGoal(AppState.profile); return; }
-    if (AppState.screen === 'onboard-placement-choice') { shellEl.innerHTML = FluentrUI.renderOnboardingPlacementChoice(AppState.profile); return; }
-    if (AppState.screen === 'placement') { shellEl.innerHTML = renderPlacementScreen(); return; }
-    if (AppState.screen === 'session') { shellEl.innerHTML = wrapApp(renderSessionScreen()); return; }
-    if (AppState.screen === 'out-of-hearts') { shellEl.innerHTML = wrapApp(FluentrUI.renderOutOfHearts()); return; }
-    if (AppState.screen === 'simulator') { shellEl.innerHTML = wrapApp(renderSimulatorScreen()); return; }
-    if (AppState.screen === 'duel') { shellEl.innerHTML = wrapApp(renderDuelScreen()); return; }
-    if (AppState.screen === 'week-recap') { shellEl.innerHTML = wrapApp(FluentrUI.renderWeekRecap(FluentrLessonEngine.buildWeeklyRecap(AppState.profile))); return; }
+  // Every screen's fill bars/rings are emitted at 0 (see FluentrUI.xpRing
+  // and the goal-bar-fill call sites) with their real target stashed in a
+  // data attribute — innerHTML swaps in a brand-new node with no "previous
+  // value" for a CSS transition to animate from, so this nudges each one to
+  // its target a frame later, which the DOM sees as a real style change.
+  function animateFills() {
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.fill-anim[data-w]').forEach((el) => { el.style.width = el.dataset.w; });
+      document.querySelectorAll('.ring-fill[data-offset]').forEach((el) => { el.style.strokeDashoffset = el.dataset.offset; });
+    });
+  }
 
-    shellEl.innerHTML = wrapApp(renderRoute());
-    if (AppState.route === 'ai-chat') {
-      const scroller = document.getElementById('ai-chat-scroll');
-      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  function setShell(html) {
+    shellEl.innerHTML = html;
+    animateFills();
+  }
+
+  function safeRender(fn) {
+    try { fn(); } catch (e) {
+      console.error('Render crashed:', e);
+      shellEl.innerHTML = FluentrUI.renderCrashScreen();
     }
   }
 
+  function render() {
+    safeRender(() => {
+      if (AppState.screen === 'gate') return; // already rendered
+      if (AppState.screen === 'onboard-goal') { setShell(FluentrUI.renderOnboardingGoal(AppState.profile)); return; }
+      if (AppState.screen === 'onboard-placement-choice') { setShell(FluentrUI.renderOnboardingPlacementChoice(AppState.profile)); return; }
+      if (AppState.screen === 'placement') { setShell(renderPlacementScreen()); return; }
+      if (AppState.screen === 'session') { setShell(wrapApp(renderSessionScreen())); return; }
+      if (AppState.screen === 'out-of-hearts') { setShell(wrapApp(FluentrUI.renderOutOfHearts())); return; }
+      if (AppState.screen === 'simulator') { setShell(wrapApp(renderSimulatorScreen())); return; }
+      if (AppState.screen === 'duel') { setShell(wrapApp(renderDuelScreen())); return; }
+      if (AppState.screen === 'week-recap') { setShell(wrapApp(FluentrUI.renderWeekRecap(FluentrLessonEngine.buildWeeklyRecap(AppState.profile)))); return; }
+
+      setShell(wrapApp(renderRoute()));
+      if (AppState.route === 'ai-chat') {
+        const scroller = document.getElementById('ai-chat-scroll');
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+  }
+
   function wrapApp(innerHTML) {
+    const transitionClass = transitionPending ? ' view-transition-in' : '';
+    transitionPending = false;
     return `${FluentrUI.renderRail(AppState.profile, AppState.route)}
       <div class="main-col">
         ${FluentrUI.renderTopbar(AppState.route)}
-        <main id="view-root">${innerHTML}</main>
+        <main id="view-root" class="${transitionClass.trim()}">${innerHTML}</main>
         ${FluentrUI.renderBottomNav(AppState.route)}
       </div>`;
   }
@@ -271,8 +311,8 @@ const FluentrApp = (function () {
       case 'say': return AppState.say.openId ? FluentrUI.renderSayDetail(window.WL_DATA.say.find((s) => s.id === AppState.say.openId)) : FluentrUI.renderSay(p, AppState.say.query, AppState.say.results);
       case 'writing': return AppState.writing.openId ? FluentrUI.renderWritingDetail(window.WL_DATA.writing.find((w) => w.id === AppState.writing.openId), AppState.writing.tone) : FluentrUI.renderWriting(p);
       case 'technical': return AppState.technical.openId ? FluentrUI.renderTechnicalDetail(window.WL_DATA.technical.find((t) => t.id === AppState.technical.openId), AppState.technical.audience) : FluentrUI.renderTechnical(p);
-      case 'ai-chat': return AppState.aiChat.scenario ? FluentrUI.renderAIChat(AppState.aiChat) : FluentrUI.renderAIChatSetup();
-      case 'ai-writing': return FluentrUI.renderAIWriting(AppState.aiWriting);
+      case 'ai-chat': return AppState.aiChat.scenario ? FluentrUI.renderAIChat(AppState.aiChat, AppState.aiRemaining) : FluentrUI.renderAIChatSetup(AppState.aiRemaining);
+      case 'ai-writing': return FluentrUI.renderAIWriting(AppState.aiWriting, AppState.aiRemaining);
       case 'league': return FluentrUI.renderLeague(p, op, c);
       case 'comeback': return FluentrUI.renderComeback(FluentrGamification.buildStats(p), FluentrGamification.buildStats(op), op);
       case 'duel-setup': return FluentrUI.renderDuelSetup();
@@ -307,6 +347,7 @@ const FluentrApp = (function () {
     AppState.session = { items, index: 0, mode, meta: meta || {}, correctCount: 0, gradedCount: 0, xpEarned: 0 };
     AppState.itemState = initItemState(items[0]);
     AppState.screen = 'session';
+    transitionPending = true;
     if (AppState.profile) {
       const rs = AppState.profile.recentlyServed || [];
       AppState.profile.recentlyServed = rs.concat(items.map((it) => it.uid)).slice(-40);
@@ -359,6 +400,7 @@ const FluentrApp = (function () {
     if (isLessonMode && AppState.profile.hearts.count <= 0) {
       persistProfile();
       AppState.screen = 'out-of-hearts';
+      transitionPending = true;
       render();
       return;
     }
@@ -479,6 +521,7 @@ const FluentrApp = (function () {
   function exitSession() {
     AppState.session = null;
     AppState.screen = 'app';
+    transitionPending = true;
     render();
   }
 
@@ -489,6 +532,7 @@ const FluentrApp = (function () {
     if (!sim) return;
     AppState.simulator = { sim, index: 0, answered: false, selected: null, unitId, lessonId };
     AppState.screen = 'simulator';
+    transitionPending = true;
     render();
   }
 
@@ -628,6 +672,7 @@ const FluentrApp = (function () {
       const res = await FluentrAI.chat(AppState.profile.id, chat.scenario, AppState.profile.cefrLevel, priorHistory, text);
       chat.history.push({ role: 'model', text: res.reply });
       if (res.hadError) chat.lastCorrection = { correction: res.correction, pt: res.correctionPt };
+      if (typeof res.remaining === 'number') AppState.aiRemaining = res.remaining;
       awardAIActivity('aiChat', 3, 'AI conversation practice');
     } catch (e) {
       chat.history.push({ role: 'model', text: '⚠️ ' + FluentrAI.friendlyError(e) });
@@ -668,6 +713,7 @@ const FluentrApp = (function () {
     FluentrUI.showToast('Generating practice…', topic, null);
     try {
       const res = await FluentrAI.generateExercises(AppState.profile.id, topic, AppState.profile.cefrLevel, 6);
+      if (typeof res.remaining === 'number') AppState.aiRemaining = res.remaining;
       const items = res.exercises.map((ex) => ({ uid: ex.id, type: ex.type, unit: 'ai-generated', data: ex }));
       startSession(items, 'ai-generated', { topic });
     } catch (e) {
@@ -682,6 +728,7 @@ const FluentrApp = (function () {
     render();
     try {
       w.result = await FluentrAI.reviewWriting(AppState.profile.id, w.text);
+      if (typeof w.result.remaining === 'number') AppState.aiRemaining = w.result.remaining;
       awardAIActivity('aiWriting', 5, 'AI writing review');
     } catch (e) {
       w.result = { issues: [], overallPt: '⚠️ ' + FluentrAI.friendlyError(e) };
@@ -735,6 +782,7 @@ const FluentrApp = (function () {
       startedAt: Date.now(), phase: 'play'
     };
     AppState.screen = 'duel';
+    transitionPending = true;
     render();
   }
 
@@ -844,6 +892,7 @@ const FluentrApp = (function () {
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const a = el.dataset.action;
+    try {
 
     switch (a) {
       case 'navigate': FluentrRouter.navigate(el.dataset.route); break;
@@ -1033,6 +1082,10 @@ const FluentrApp = (function () {
       case 'remove-photo': AppState.profile.photo = null; persistProfile(); render(); break;
       default: break;
     }
+    } catch (err) {
+      console.error('Click handler crashed:', err);
+      shellEl.innerHTML = FluentrUI.renderCrashScreen();
+    }
   });
 
   document.addEventListener('change', (e) => {
@@ -1164,6 +1217,16 @@ const FluentrApp = (function () {
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   }
+
+  // Catch-all for anything outside render()/the click handler (async
+  // listeners like input/keydown/change) — surfaces the same crash
+  // screen instead of leaving the app silently unresponsive.
+  window.addEventListener('error', () => { if (AppState.screen !== 'gate') shellEl.innerHTML = FluentrUI.renderCrashScreen(); });
+  window.addEventListener('online', () => {
+    let pending = false;
+    try { pending = !!window.localStorage.getItem(PENDING_SAVE_KEY); } catch (e) { /* ignore */ }
+    if (pending && AppState.profile) persistProfile();
+  });
 
   document.addEventListener('DOMContentLoaded', boot);
 
