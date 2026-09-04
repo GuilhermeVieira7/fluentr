@@ -279,7 +279,7 @@ const FluentrApp = (function () {
       case 'profile': return FluentrUI.renderProfile(p, op);
       case 'progress': return FluentrUI.renderProgress(p);
       case 'phrasebook': return FluentrUI.renderPhrasebook(p);
-      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled(), installState: FluentrPWA.installState(), backups: AppState.settingsBackups }, p);
+      case 'settings': return FluentrUI.renderSettings({ theme: FluentrData.getTheme(), notifyPermission: FluentrPWA.notificationPermission(), pushSupported: FluentrPush.isSupported() && FluentrAI.isEnabled(), installState: FluentrPWA.installState(), backups: AppState.settingsBackups, sfxEnabled: FluentrSFX.isEnabled() }, p);
       default: return FluentrUI.renderHome(p, op, c);
     }
   }
@@ -338,6 +338,7 @@ const FluentrApp = (function () {
     const s = AppState.session, item = s.items[s.index];
     s.gradedCount += 1;
     if (isCorrect) s.correctCount += 1;
+    if (isCorrect) FluentrSFX.correct(); else FluentrSFX.incorrect();
 
     let prevLevel;
     AppState.profile && (prevLevel = FluentrGamification.levelInfo(AppState.profile.xp).level);
@@ -371,7 +372,7 @@ const FluentrApp = (function () {
     const unlocked = FluentrGamification.checkBadges(AppState.profile, badgeCtx());
     if (streakResult.usedFreeze) FluentrUI.showToast('🧊 Streak freeze used', `Missed yesterday, but your ${streakResult.current}-day streak survived.`, 'streak');
     else if (streakResult.changed && streakResult.current > 1) FluentrUI.showToast(`🔥 ${streakResult.current}-day streak!`, null, 'streak');
-    if (prevLevel && newLevel > prevLevel) FluentrUI.showLevelUp(newLevel);
+    if (prevLevel && newLevel > prevLevel) { FluentrUI.showLevelUp(newLevel); FluentrSFX.levelUp(); }
     unlocked.forEach((b) => FluentrUI.showToast(`Badge unlocked: ${b.name}`, b.description, 'badge'));
     checkLeagueLeadChange();
     persistProfile();
@@ -577,6 +578,7 @@ const FluentrApp = (function () {
   /* ============ Pillars: Traps / Say / Writing / Technical / SOS ============ */
 
   function markPillarActivity(key, exerciseId, isCorrect) {
+    if (isCorrect !== false) FluentrSFX.correct(); else FluentrSFX.incorrect();
     AppState.profile.pillarActivity[key] = (AppState.profile.pillarActivity[key] || 0) + 1;
     const prevLevel = FluentrGamification.levelInfo(AppState.profile.xp).level;
     if (exerciseId) FluentrGamification.recordAnswer(AppState.profile, exerciseId, isCorrect !== false, FL_XP_RULES.ANSWER_CORRECT);
@@ -745,7 +747,7 @@ const FluentrApp = (function () {
   function duelAnswer(idx) {
     const d = AppState.duel;
     d.selected = idx; d.answered = true;
-    if (idx === d.exercises[d.index].data.answer) d.score += 1;
+    if (idx === d.exercises[d.index].data.answer) { d.score += 1; FluentrSFX.correct(); } else FluentrSFX.incorrect();
     render();
   }
 
@@ -970,6 +972,7 @@ const FluentrApp = (function () {
       case 'retake-placement': startPlacement(); AppState.screen = 'placement'; render(); break;
       case 'switch-profile': stopLiveSync(); FluentrData.setActiveProfileId(''); showGate(); break;
       case 'toggle-theme': { const t = FluentrData.getTheme() === 'dark' ? 'light' : 'dark'; FluentrData.setTheme(t); applyTheme(t); render(); break; }
+      case 'toggle-sfx': { const on = !FluentrSFX.isEnabled(); FluentrSFX.setEnabled(on); if (on) FluentrSFX.correct(); render(); break; }
       case 'toggle-streak-notify': {
         const next = !AppState.profile.settings.notifyStreak;
         if (next) {
@@ -1121,6 +1124,7 @@ const FluentrApp = (function () {
     const ci = AppState.coupleItem;
     ci.answered = true; ci.selected = idx;
     const correct = idx === ci.item.answer;
+    if (correct) FluentrSFX.correct(); else FluentrSFX.incorrect();
     const prevLevel = FluentrGamification.levelInfo(AppState.profile.xp).level;
     FluentrGamification.recordAnswer(AppState.profile, 'couple-' + ci.item.id + '-' + AppState.profile.id, correct, FL_XP_RULES.ANSWER_CORRECT);
     settleActivity(prevLevel);

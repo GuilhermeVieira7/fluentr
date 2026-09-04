@@ -1255,6 +1255,7 @@ const FluentrUI = (function () {
       <h1 style="margin-bottom:18px;">Settings</h1>
       <div class="card" style="margin-bottom:14px;">
         <div class="settings-row"><div class="settings-row-title">Dark mode</div><button class="switch ${state.theme === 'dark' ? 'on' : ''}" data-action="toggle-theme"></button></div>
+        <div class="settings-row" style="margin-top:10px;"><div class="settings-row-title">Sound & haptics</div><button class="switch ${state.sfxEnabled ? 'on' : ''}" data-action="toggle-sfx"></button></div>
         <div class="form-row" style="margin-top:14px;margin-bottom:0;"><label class="form-label">Daily goal (XP)</label><input type="number" class="form-input" id="daily-goal-input" min="10" max="200" value="${profile.settings.dailyGoalXP}"></div>
         <button class="btn btn-primary btn-sm mt-8" data-action="save-daily-goal">Save</button>
       </div>

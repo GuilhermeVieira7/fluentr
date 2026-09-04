@@ -21,7 +21,7 @@ const PRECACHE_URLS = [
   './js/core/config.js', './js/core/storage.js', './js/core/dataService.js',
   './js/core/supabaseAuth.js', './js/core/supabaseDataProvider.js', './js/core/dataServiceSelect.js',
   './js/core/gamification.js', './js/core/profiles.js',
-  './js/core/mascot.js', './js/core/feedback.js', './js/core/pwa.js', './js/core/push.js', './js/core/aiClient.js', './js/core/presence.js',
+  './js/core/mascot.js', './js/core/feedback.js', './js/core/pwa.js', './js/core/push.js', './js/core/aiClient.js', './js/core/presence.js', './js/core/sfx.js',
   './data/curriculum.js', './data/badges.js', './data/traps.js', './data/say.js', './data/writing.js',
   './data/technical.js', './data/sos.js', './data/lessons.js', './data/coupleChallenges.js', './data/simulators.js', './data/placement.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/apple-touch-icon.png',
