@@ -3,7 +3,7 @@
 // client. Uses responseSchema/responseMimeType so Gemini returns strict
 // JSON matching the shape each caller needs, instead of free text we'd
 // have to parse hopefully.
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'gemini-3.6-flash';
 
 export async function geminiJSON(opts: {
   systemInstruction: string;

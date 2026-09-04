@@ -23,12 +23,13 @@ drop policy if exists "push_subscriptions_delete_own" on public.push_subscriptio
 create policy "push_subscriptions_delete_own" on public.push_subscriptions
   for delete using (true);
 
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net with schema extensions;
+
 -- Schedules the reminder function daily at 19:00 UTC (edit the cron
 -- string for your timezone — this project's users are in Brazil, UTC-3,
 -- so 19:00 UTC is 16:00 local; pick whatever hour actually makes sense
 -- for a "don't lose your streak" nudge and adjust).
--- Requires the pg_cron and pg_net extensions (Database → Extensions —
--- both are available by default on Supabase, just need enabling if off).
 --
 -- send-daily-reminders is deployed with --no-verify-jwt, specifically so
 -- this call needs no key at all — it accepts no meaningful input and only
