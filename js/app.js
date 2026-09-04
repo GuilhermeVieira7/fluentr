@@ -158,6 +158,9 @@ const FluentrApp = (function () {
     FluentrRouter.start(() => {});
     FluentrRouter.render();
     startLiveSync();
+    FluentrPresence.start(AppState.profile.id, () => {
+      if (AppState.screen === 'app' && AppState.route === 'league') render();
+    });
   }
 
   // Screens where the partner's activity is actually visible — only these
@@ -173,6 +176,7 @@ const FluentrApp = (function () {
   // silently killing live sync for the rest of that session.
   function stopLiveSync() {
     if (AppState.unsubscribeLive) { AppState.unsubscribeLive(); AppState.unsubscribeLive = null; }
+    FluentrPresence.stop();
   }
 
   function startLiveSync() {
@@ -365,7 +369,8 @@ const FluentrApp = (function () {
     FluentrGamification.addWeeklyXP(AppState.profile, 0); // ensures week bucket exists
     const newLevel = FluentrGamification.levelInfo(AppState.profile.xp).level;
     const unlocked = FluentrGamification.checkBadges(AppState.profile, badgeCtx());
-    if (streakResult.changed && streakResult.current > 1) FluentrUI.showToast(`🔥 ${streakResult.current}-day streak!`, null, 'streak');
+    if (streakResult.usedFreeze) FluentrUI.showToast('🧊 Streak freeze used', `Missed yesterday, but your ${streakResult.current}-day streak survived.`, 'streak');
+    else if (streakResult.changed && streakResult.current > 1) FluentrUI.showToast(`🔥 ${streakResult.current}-day streak!`, null, 'streak');
     if (prevLevel && newLevel > prevLevel) FluentrUI.showLevelUp(newLevel);
     unlocked.forEach((b) => FluentrUI.showToast(`Badge unlocked: ${b.name}`, b.description, 'badge'));
     checkLeagueLeadChange();
@@ -793,12 +798,17 @@ const FluentrApp = (function () {
       d.phase = 'waiting';
       d.myResult = myResult;
       render();
+      FluentrPush.notifyProfile(AppState.otherProfile.id, "It's your turn in the Duel!", `${AppState.profile.name} just played their round — go finish it.`);
       return;
     }
     await awardDuelOutcome(finalRecord);
     d.phase = 'result';
     d.record = finalRecord;
     render();
+    // The partner already played earlier and isn't necessarily looking at
+    // the app right now — let them know how it turned out too.
+    const theyWon = finalRecord.winnerId === AppState.otherProfile.id;
+    FluentrPush.notifyProfile(AppState.otherProfile.id, 'Duel finished!', `You ${theyWon ? 'won' : 'lost'} against ${AppState.profile.name}. Check the League for details.`);
   }
 
   // Runs only on the device that won the finalize race. Both profiles are

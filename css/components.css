@@ -569,3 +569,10 @@ body {
 .ai-issue-type { display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--danger-soft); color: var(--danger); margin-bottom: 8px; }
 .ai-issue-original { text-decoration: line-through; color: var(--ink-faint); font-size: 13px; margin-bottom: 4px; }
 .ai-issue-suggestion { color: var(--success); font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
+
+/* ============ Presence indicator (V3.1) ============ */
+.presence-wrap { position: relative; display: inline-block; }
+.presence-dot {
+  position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--success); box-shadow: 0 0 0 2px var(--surface), 0 0 8px var(--success);
+}

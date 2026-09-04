@@ -19,7 +19,7 @@ function flDefaultProfile(id, name, color) {
     placementResult: null,
     xp: 0,
     hearts: { count: 5, lastRegenAt: new Date().toISOString() },
-    streak: { current: 0, best: 0, lastActiveDate: null, activeDates: [] },
+    streak: { current: 0, best: 0, lastActiveDate: null, activeDates: [], freezesAvailable: 0, freezeWeek: null },
     badges: [],
     exerciseStats: {}, // exerciseId -> {seen, correct, incorrect, lastAnsweredAt, lastCorrect, interval, dueAt}
     recentlyServed: [], // rolling window (~40) of recently shown exercise ids — avoids back-to-back repeats

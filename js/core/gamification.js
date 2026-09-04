@@ -112,20 +112,46 @@ const FluentrGamification = (function () {
     profile.hearts.count = Math.min(FL_XP_RULES.MAX_HEARTS, profile.hearts.count + (n || 1));
   }
 
-  // Returns { changed, current, isFirstActivityToday }
+  // Returns { changed, current, isFirstActivityToday, usedFreeze }
+  // Streak freeze: one per ISO week (profile.streak.freezesAvailable,
+  // refilled here the first time a given week is seen — no separate
+  // migration needed since old profiles just start at 0 until their next
+  // natural week rollover). Exactly one missed day is forgivable; missing
+  // two or more still resets the streak even with a freeze in hand.
   function updateStreak(profile) {
     const today = flTodayISO();
     if (profile.streak.lastActiveDate === today) return { changed: false, current: profile.streak.current, isFirstActivityToday: false };
+
+    const wk = weekKey();
+    if (profile.streak.freezeWeek !== wk) {
+      profile.streak.freezesAvailable = 1;
+      profile.streak.freezeWeek = wk;
+    }
+
     const yesterday = new Date(Date.now() - 86400000);
     const yISO = new Date(yesterday.getTime() - yesterday.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    profile.streak.current = profile.streak.lastActiveDate === yISO ? profile.streak.current + 1 : 1;
+    let usedFreeze = false;
+    if (profile.streak.lastActiveDate === yISO) {
+      profile.streak.current += 1;
+    } else if (profile.streak.lastActiveDate) {
+      const daysMissed = Math.round((flParseLocalDate(today) - flParseLocalDate(profile.streak.lastActiveDate)) / 86400000) - 1;
+      if (daysMissed === 1 && (profile.streak.freezesAvailable || 0) > 0) {
+        profile.streak.freezesAvailable -= 1;
+        profile.streak.current += 1;
+        usedFreeze = true;
+      } else {
+        profile.streak.current = 1;
+      }
+    } else {
+      profile.streak.current = 1;
+    }
     profile.streak.lastActiveDate = today;
     profile.streak.best = Math.max(profile.streak.best, profile.streak.current);
     if (!profile.streak.activeDates.includes(today)) {
       profile.streak.activeDates.push(today);
       if (profile.streak.activeDates.length > 400) profile.streak.activeDates.shift();
     }
-    return { changed: true, current: profile.streak.current, isFirstActivityToday: true };
+    return { changed: true, current: profile.streak.current, isFirstActivityToday: true, usedFreeze };
   }
 
   // Derives the couple streak by walking back from today over both profiles' activeDates.

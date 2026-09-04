@@ -69,5 +69,24 @@ const FluentrPush = (function () {
     }
   }
 
-  return { isSupported, isSubscribed, subscribe, unsubscribe };
+  // Immediate push to the OTHER profile's devices — e.g. "it's your turn"
+  // when a Duel round is submitted. Best-effort: swallows failures (a
+  // missing notification isn't worth surfacing an error over) and no-ops
+  // silently when cloud sync isn't configured.
+  async function notifyProfile(profileId, title, body) {
+    if (!FluentrAI.isEnabled()) return;
+    try {
+      await fetch(`${FL_CONFIG.EDGE_FUNCTIONS_URL}/send-push-to-profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${FL_CONFIG.SUPABASE_ANON_KEY}`,
+          'apikey': FL_CONFIG.SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ profileId, title, body })
+      });
+    } catch (e) { /* best-effort */ }
+  }
+
+  return { isSupported, isSubscribed, subscribe, unsubscribe, notifyProfile };
 })();

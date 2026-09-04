@@ -819,7 +819,7 @@ const FluentrUI = (function () {
         <div class="league-vs">
           <div class="league-side">${avatar(profile, 50)}<div class="league-name mt-8">${esc(profile.name)}</div><div class="league-xp">${stats.weeklyXP} XP</div><div class="text-faint" style="font-size:10.5px;margin-top:2px;">🔥 ${stats.currentStreak}d</div></div>
           <div class="league-vs-divider">VS</div>
-          <div class="league-side">${avatar(otherProfile, 50)}<div class="league-name mt-8">${esc(otherProfile.name)}</div><div class="league-xp">${otherStats.weeklyXP} XP</div><div class="text-faint" style="font-size:10.5px;margin-top:2px;">🔥 ${otherStats.currentStreak}d</div></div>
+          <div class="league-side"><div class="presence-wrap">${avatar(otherProfile, 50)}${FluentrPresence.isOnline(otherProfile.id) ? `<span class="presence-dot" title="${esc(otherProfile.name)} is online now"></span>` : ''}</div><div class="league-name mt-8">${esc(otherProfile.name)}</div><div class="league-xp">${otherStats.weeklyXP} XP</div><div class="text-faint" style="font-size:10.5px;margin-top:2px;">🔥 ${otherStats.currentStreak}d</div></div>
         </div>
         <div class="league-bar-track"><div class="league-bar-a" style="width:${pct(leagueSplitPct(stats.weeklyXP, otherStats.weeklyXP))};"></div><div class="league-bar-b" style="flex:1;"></div></div>
       </div>
@@ -1105,7 +1105,7 @@ const FluentrUI = (function () {
           <button class="section-link" style="background:none;border:none;font-size:11.5px;margin-top:2px;" data-action="remove-photo">Remove photo</button>
         ` : ''}
         <div class="flex gap-8" style="justify-content:center;margin-top:12px;">
-          <span class="chip chip-xp">Lvl ${stats.level}</span><span class="chip chip-streak">🔥 ${stats.currentStreak}</span><span class="chip">${stats.totalXP} XP</span>
+          <span class="chip chip-xp">Lvl ${stats.level}</span><span class="chip chip-streak">🔥 ${stats.currentStreak}</span><span class="chip">${stats.totalXP} XP</span>${(profile.streak.freezesAvailable || 0) > 0 ? `<span class="chip" title="Covers one missed day this week without breaking your streak">🧊 Freeze ready</span>` : ''}
         </div>
         <div style="max-width:260px;margin:14px auto 0;">
           <div class="flex" style="justify-content:space-between;font-size:11px;color:var(--ink-faint);margin-bottom:4px;">
